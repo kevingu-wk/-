@@ -1,0 +1,2668 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>共享平台分帳與快速通知系統</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google Fonts: Inter & Noto Sans TC -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+TC:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['"Inter"', '"Noto Sans TC"', 'system-ui', '-apple-system', 'sans-serif'],
+          },
+        },
+      },
+    };
+  </script>
+  <style>
+    body {
+      background-color: #f8fafc;
+      color: #0f172a;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .modal-backdrop {
+      animation: fadeIn 0.18s ease-out forwards;
+    }
+    .modal-panel {
+      animation: slideUp 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    @keyframes slideUp {
+      from { opacity: 0; transform: translateY(14px) scale(0.98); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    .toast-enter {
+      animation: toastIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+    @keyframes toastIn {
+      from { opacity: 0; transform: translateY(16px) scale(0.95); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    .shake {
+      animation: shakeAnim 0.36s cubic-bezier(.36,.07,.19,.97) both;
+    }
+    @keyframes shakeAnim {
+      10%, 90% { transform: translateX(-2px); }
+      20%, 80% { transform: translateX(4px); }
+      30%, 50%, 70% { transform: translateX(-6px); }
+      40%, 60% { transform: translateX(6px); }
+    }
+    /* 隱藏數字輸入框預設箭頭 */
+    input[type="number"]::-webkit-inner-spin-button,
+    input[type="number"]::-webkit-outer-spin-button {
+      -webkit-appearance: none;
+      margin: 0;
+    }
+    input[type="number"] {
+      -moz-appearance: textfield;
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col antialiased selection:bg-indigo-100 selection:text-indigo-800">
+
+  <!-- ==================== 安全門禁：首次設定 / 解鎖畫面 ==================== -->
+  <div id="authGate" class="fixed inset-0 z-[100] bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 flex items-center justify-center p-4 overflow-y-auto">
+    <div class="w-full max-w-md my-auto">
+      <!-- 品牌標題 -->
+      <div class="text-center mb-6">
+        <div class="w-14 h-14 mx-auto rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-500 flex items-center justify-center text-white shadow-lg shadow-indigo-500/30 mb-3">
+          <svg class="w-7 h-7" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+          </svg>
+        </div>
+        <h1 class="text-xl sm:text-2xl font-bold text-white tracking-tight">共享平台分帳管家</h1>
+        <p class="text-xs sm:text-sm text-indigo-200/80 mt-1">雲端即時同步 × 專屬存取碼安全防護</p>
+      </div>
+
+      <!-- 狀態 0：連線初始化中 -->
+      <div id="gateLoadingView" class="bg-white/95 backdrop-blur-md rounded-3xl shadow-2xl p-8 text-center">
+        <div class="w-10 h-10 mx-auto border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin"></div>
+        <p class="text-sm font-medium text-slate-700 mt-4">正在連線雲端服務與檢查安全狀態...</p>
+      </div>
+
+      <!-- 狀態 1：首次存取碼設定 / 跨裝置匯入 -->
+      <div id="gateSetupView" class="hidden bg-white rounded-3xl shadow-2xl overflow-hidden modal-panel">
+        <!-- 切換頁籤 -->
+        <div class="grid grid-cols-2 bg-slate-100 p-1.5 m-4 mb-0 rounded-2xl text-xs sm:text-sm font-semibold">
+          <button id="tabCreateSpace" type="button" class="py-2.5 rounded-xl transition cursor-pointer bg-white text-indigo-700 shadow-xs">建立新雲端空間</button>
+          <button id="tabJoinSpace" type="button" class="py-2.5 rounded-xl transition cursor-pointer text-slate-500 hover:text-slate-700">連線既有空間</button>
+        </div>
+
+        <!-- 子畫面 A：建立新空間 -->
+        <form id="formCreateSpace" class="p-5 sm:p-6 space-y-4">
+          <div class="p-3.5 rounded-2xl bg-indigo-50/80 border border-indigo-100">
+            <div class="flex items-center justify-between gap-2">
+              <span class="text-xs font-semibold text-indigo-900">您的專屬雲端同步碼</span>
+              <button id="btnRegenCode" type="button" class="text-xs font-medium text-indigo-600 hover:text-indigo-800 cursor-pointer">重新產生</button>
+            </div>
+            <div id="newWorkspaceCodeDisplay" class="mt-1 text-lg font-mono font-bold text-indigo-700 tracking-wider select-all">SHARE-XXXX-XXXX</div>
+            <p class="text-[11px] text-indigo-700/75 mt-1">日後於其他手機或電腦輸入此同步碼與存取碼即可即時同步。</p>
+          </div>
+
+          <div>
+            <label for="setupAccessCode" class="block text-xs font-semibold text-slate-700 mb-1.5">設定首次存取碼（4~8 位數字或英數）<span class="text-rose-500">*</span></label>
+            <input id="setupAccessCode" type="password" inputmode="text" minlength="4" maxlength="8" required autocomplete="new-password" placeholder="請輸入 4~8 位存取碼" class="w-full px-4 py-2.5 text-sm font-semibold tracking-widest bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500" />
+          </div>
+
+          <div>
+            <label for="setupAccessCodeConfirm" class="block text-xs font-semibold text-slate-700 mb-1.5">再次確認存取碼 <span class="text-rose-500">*</span></label>
+            <input id="setupAccessCodeConfirm" type="password" inputmode="text" minlength="4" maxlength="8" required autocomplete="new-password" placeholder="請再次輸入存取碼" class="w-full px-4 py-2.5 text-sm font-semibold tracking-widest bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500" />
+          </div>
+
+          <div class="space-y-2 pt-1">
+            <label class="flex items-center gap-2.5 text-xs text-slate-600 cursor-pointer select-none">
+              <input id="setupLoadSamples" type="checkbox" checked class="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer" />
+              <span>載入 2 筆範例方案（YouTube Premium 與 Netflix）方便體驗</span>
+            </label>
+            <label class="flex items-center gap-2.5 text-xs text-slate-600 cursor-pointer select-none">
+              <input id="setupRememberDevice" type="checkbox" checked class="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer" />
+              <span>在此裝置記住解鎖狀態（下次開啟免重複輸入）</span>
+            </label>
+          </div>
+
+          <p id="setupErrorMsg" class="hidden text-xs font-medium text-rose-600 bg-rose-50 px-3 py-2 rounded-xl border border-rose-100"></p>
+
+          <button id="btnCreateSpaceSubmit" type="submit" class="w-full py-3 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 active:scale-[0.99] rounded-xl shadow-md shadow-indigo-200 transition cursor-pointer">
+            建立空間並進入系統
+          </button>
+        </form>
+
+        <!-- 子畫面 B：連線既有空間 -->
+        <form id="formJoinSpace" class="hidden p-5 sm:p-6 space-y-4">
+          <div class="p-3 rounded-2xl bg-slate-50 border border-slate-200/80 text-xs text-slate-600 leading-relaxed">
+            請輸入您在另一台裝置上建立的「雲端空間同步碼」與「存取碼」，即可即時載入所有分帳與收款紀錄。
+          </div>
+
+          <div>
+            <label for="joinSpaceCode" class="block text-xs font-semibold text-slate-700 mb-1.5">雲端空間同步碼 <span class="text-rose-500">*</span></label>
+            <input id="joinSpaceCode" type="text" required placeholder="例如：SHARE-8K4M-2P9X" class="w-full px-4 py-2.5 text-sm font-mono font-bold uppercase tracking-wider bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500" />
+          </div>
+
+          <div>
+            <label for="joinAccessCode" class="block text-xs font-semibold text-slate-700 mb-1.5">存取碼 <span class="text-rose-500">*</span></label>
+            <input id="joinAccessCode" type="password" minlength="4" maxlength="8" required placeholder="請輸入該空間的存取碼" class="w-full px-4 py-2.5 text-sm font-semibold tracking-widest bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500" />
+          </div>
+
+          <label class="flex items-center gap-2.5 text-xs text-slate-600 cursor-pointer select-none">
+            <input id="joinRememberDevice" type="checkbox" checked class="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer" />
+            <span>在此裝置記住解鎖狀態</span>
+          </label>
+
+          <p id="joinErrorMsg" class="hidden text-xs font-medium text-rose-600 bg-rose-50 px-3 py-2 rounded-xl border border-rose-100"></p>
+
+          <button id="btnJoinSpaceSubmit" type="submit" class="w-full py-3 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 active:scale-[0.99] rounded-xl shadow-md shadow-indigo-200 transition cursor-pointer">
+            驗證並同步資料
+          </button>
+        </form>
+      </div>
+
+      <!-- 狀態 2：輸入存取碼解鎖畫面 -->
+      <div id="gateUnlockView" class="hidden bg-white rounded-3xl shadow-2xl p-5 sm:p-6 modal-panel">
+        <div class="text-center mb-4">
+          <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono font-semibold bg-indigo-50 text-indigo-700 border border-indigo-100">
+            <span class="w-2 h-2 rounded-full bg-indigo-500"></span>
+            <span id="unlockWorkspaceCode">SHARE-XXXX-XXXX</span>
+          </span>
+          <h2 class="text-lg font-bold text-slate-900 mt-2.5">請輸入存取碼解鎖</h2>
+          <p class="text-xs text-slate-500 mt-0.5">保護您的帳務明細與收款帳號安全</p>
+        </div>
+
+        <form id="formUnlock" class="space-y-4">
+          <div>
+            <input id="unlockInput" type="password" maxlength="8" autocomplete="current-password" placeholder="輸入 4~8 位存取碼" class="w-full text-center px-4 py-3 text-lg font-bold tracking-[0.35em] bg-slate-50 border border-slate-200 rounded-2xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 transition" />
+          </div>
+
+          <!-- 可點擊數字鍵盤 -->
+          <div class="grid grid-cols-3 gap-2 select-none" id="unlockKeypad">
+            <button type="button" data-key="1" class="keypad-btn py-2.5 text-lg font-semibold text-slate-800 bg-slate-100 hover:bg-slate-200 active:scale-95 rounded-xl transition cursor-pointer">1</button>
+            <button type="button" data-key="2" class="keypad-btn py-2.5 text-lg font-semibold text-slate-800 bg-slate-100 hover:bg-slate-200 active:scale-95 rounded-xl transition cursor-pointer">2</button>
+            <button type="button" data-key="3" class="keypad-btn py-2.5 text-lg font-semibold text-slate-800 bg-slate-100 hover:bg-slate-200 active:scale-95 rounded-xl transition cursor-pointer">3</button>
+            <button type="button" data-key="4" class="keypad-btn py-2.5 text-lg font-semibold text-slate-800 bg-slate-100 hover:bg-slate-200 active:scale-95 rounded-xl transition cursor-pointer">4</button>
+            <button type="button" data-key="5" class="keypad-btn py-2.5 text-lg font-semibold text-slate-800 bg-slate-100 hover:bg-slate-200 active:scale-95 rounded-xl transition cursor-pointer">5</button>
+            <button type="button" data-key="6" class="keypad-btn py-2.5 text-lg font-semibold text-slate-800 bg-slate-100 hover:bg-slate-200 active:scale-95 rounded-xl transition cursor-pointer">6</button>
+            <button type="button" data-key="7" class="keypad-btn py-2.5 text-lg font-semibold text-slate-800 bg-slate-100 hover:bg-slate-200 active:scale-95 rounded-xl transition cursor-pointer">7</button>
+            <button type="button" data-key="8" class="keypad-btn py-2.5 text-lg font-semibold text-slate-800 bg-slate-100 hover:bg-slate-200 active:scale-95 rounded-xl transition cursor-pointer">8</button>
+            <button type="button" data-key="9" class="keypad-btn py-2.5 text-lg font-semibold text-slate-800 bg-slate-100 hover:bg-slate-200 active:scale-95 rounded-xl transition cursor-pointer">9</button>
+            <button type="button" data-key="clear" class="keypad-btn py-2.5 text-xs font-semibold text-slate-500 bg-slate-50 hover:bg-slate-200/80 active:scale-95 rounded-xl transition cursor-pointer">清除</button>
+            <button type="button" data-key="0" class="keypad-btn py-2.5 text-lg font-semibold text-slate-800 bg-slate-100 hover:bg-slate-200 active:scale-95 rounded-xl transition cursor-pointer">0</button>
+            <button type="button" data-key="back" class="keypad-btn py-2.5 text-sm font-semibold text-slate-600 bg-slate-50 hover:bg-slate-200/80 active:scale-95 rounded-xl transition cursor-pointer flex items-center justify-center" title="退格">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2M3 12l6.414 6.414a2 2 0 001.414.586H19a2 2 0 002-2V7a2 2 0 00-2-2h-8.172a2 2 0 00-1.414.586L3 12z" /></svg>
+            </button>
+          </div>
+
+          <label class="flex items-center justify-center gap-2 text-xs text-slate-600 cursor-pointer select-none">
+            <input id="unlockRememberDevice" type="checkbox" checked class="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer" />
+            <span>在此裝置記住解鎖狀態</span>
+          </label>
+
+          <p id="unlockErrorMsg" class="hidden text-center text-xs font-medium text-rose-600 bg-rose-50 px-3 py-2 rounded-xl border border-rose-100"></p>
+
+          <button id="btnUnlockSubmit" type="submit" class="w-full py-3 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 active:scale-[0.99] rounded-xl shadow-md shadow-indigo-200 transition cursor-pointer">
+            解鎖進入系統
+          </button>
+        </form>
+
+        <div class="mt-4 pt-3 border-t border-slate-100 text-center">
+          <button id="btnSwitchWorkspaceFromGate" type="button" class="text-xs font-medium text-slate-400 hover:text-indigo-600 transition cursor-pointer">
+            切換其他雲端空間或建立新空間
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ==================== 主應用程式外框（解鎖後顯示） ==================== -->
+  <div id="appShell" class="hidden min-h-screen flex flex-col">
+
+    <!-- ==================== 頂部導覽列 ==================== -->
+    <header class="sticky top-0 z-30 bg-white/90 backdrop-blur-md border-b border-slate-200/80">
+      <div class="max-w-6xl mx-auto px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-2.5">
+        <!-- 品牌與同步狀態 -->
+        <div class="flex items-center gap-3 min-w-0">
+          <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-600 to-violet-600 flex items-center justify-center text-white shadow-sm shadow-indigo-200 shrink-0">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+          </div>
+          <div class="min-w-0">
+            <div class="flex items-center gap-2 flex-wrap">
+              <h1 class="text-base sm:text-lg font-bold text-slate-900 tracking-tight leading-tight truncate">共享平台分帳管家</h1>
+              <!-- 雲端同步狀態膠囊 -->
+              <button id="btnSyncBadge" type="button" class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200/80 transition cursor-pointer" title="點擊開啟雲端同步與安全設定">
+                <span id="syncDot" class="w-2 h-2 rounded-full bg-amber-400"></span>
+                <span id="syncLabel">初始化中</span>
+              </button>
+            </div>
+            <p class="text-xs text-slate-500 hidden sm:block">雲端即時同步・一鍵分帳試算・LINE 快速通知</p>
+          </div>
+        </div>
+
+        <!-- 頂部功能按鈕區 -->
+        <div class="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+          <button id="btnOpenSync" type="button" class="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-2 text-xs sm:text-sm font-medium text-indigo-700 bg-indigo-50 hover:bg-indigo-100 active:scale-[0.98] rounded-xl transition cursor-pointer" title="雲端同步與存取碼設定">
+            <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
+            </svg>
+            <span class="hidden md:inline">雲端同步</span>
+          </button>
+
+          <button id="btnOpenPayment" type="button" class="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-2 text-xs sm:text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200/80 active:scale-[0.98] rounded-xl transition cursor-pointer">
+            <svg class="w-4 h-4 text-indigo-600 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+            </svg>
+            <span class="hidden sm:inline">收款資訊</span>
+            <span id="paymentStatusDot" class="w-2 h-2 rounded-full bg-emerald-500 hidden"></span>
+          </button>
+
+          <button id="btnOpenData" type="button" class="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-2 text-xs sm:text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200/80 active:scale-[0.98] rounded-xl transition cursor-pointer" title="資料備份與管理">
+            <svg class="w-4 h-4 text-slate-600 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
+            </svg>
+            <span class="hidden lg:inline">備份</span>
+          </button>
+
+          <button id="btnLockNow" type="button" class="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-2 text-xs sm:text-sm font-medium text-slate-700 bg-slate-100 hover:bg-rose-50 hover:text-rose-600 active:scale-[0.98] rounded-xl transition cursor-pointer" title="立即鎖定系統">
+            <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+            </svg>
+            <span class="hidden md:inline">鎖定</span>
+          </button>
+
+          <button id="btnAddPlan" type="button" class="inline-flex items-center gap-1.5 px-3 sm:px-4 py-2 text-xs sm:text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] rounded-xl shadow-sm shadow-indigo-200 transition cursor-pointer">
+            <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2.4" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+            </svg>
+            <span>新增方案</span>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- ==================== 主要內容區 ==================== -->
+    <main class="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 space-y-6">
+
+      <!-- 統計摘要卡片 -->
+      <section aria-label="收款統計摘要" class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+        <!-- 進行中方案 -->
+        <div class="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/80 shadow-sm flex flex-col justify-between">
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-xs sm:text-sm font-medium text-slate-500">進行中方案</span>
+            <span class="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+              </svg>
+            </span>
+          </div>
+          <div class="mt-3 flex items-baseline gap-2 flex-wrap">
+            <span id="statPlanCount" class="text-2xl sm:text-3xl font-bold text-slate-900">0</span>
+            <span class="text-xs text-slate-500">個方案</span>
+            <span id="statExpiringBadge" class="hidden text-xs font-medium px-2 py-0.5 rounded-full bg-amber-100 text-amber-800"></span>
+          </div>
+        </div>
+
+        <!-- 總計應收 -->
+        <div class="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/80 shadow-sm flex flex-col justify-between">
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-xs sm:text-sm font-medium text-slate-500">總計應收金額</span>
+            <span class="w-8 h-8 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </span>
+          </div>
+          <div class="mt-3">
+            <div id="statTotalReceivable" class="text-xl sm:text-2xl font-bold text-slate-900">NT$ 0</div>
+            <p class="text-xs text-slate-400 mt-0.5">不含主揪自付額</p>
+          </div>
+        </div>
+
+        <!-- 已收金額 -->
+        <div class="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/80 shadow-sm flex flex-col justify-between">
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-xs sm:text-sm font-medium text-slate-500">已收金額</span>
+            <span class="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+            </span>
+          </div>
+          <div class="mt-3">
+            <div class="flex items-baseline justify-between gap-2">
+              <span id="statCollected" class="text-xl sm:text-2xl font-bold text-emerald-600">NT$ 0</span>
+              <span id="statCollectedPct" class="text-xs font-semibold text-emerald-600">0%</span>
+            </div>
+            <div class="w-full h-1.5 bg-slate-100 rounded-full mt-2 overflow-hidden">
+              <div id="statProgressBar" class="h-full bg-emerald-500 rounded-full transition-all duration-300" style="width: 0%"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 待收金額 -->
+        <div class="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/80 shadow-sm flex flex-col justify-between">
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-xs sm:text-sm font-medium text-slate-500">待收金額</span>
+            <span class="w-8 h-8 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </span>
+          </div>
+          <div class="mt-3">
+            <div id="statPending" class="text-xl sm:text-2xl font-bold text-rose-600">NT$ 0</div>
+            <p id="statPendingPeople" class="text-xs text-slate-500 mt-0.5">0 人次尚未繳費</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- 篩選與搜尋列 -->
+      <section class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div class="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0" id="filterTabs">
+          <button data-filter="all" class="filter-tab px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-medium transition cursor-pointer shrink-0 bg-slate-900 text-white">全部方案</button>
+          <button data-filter="unpaid" class="filter-tab px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-medium transition cursor-pointer shrink-0 bg-white text-slate-600 border border-slate-200 hover:bg-slate-50">待收款</button>
+          <button data-filter="expiring" class="filter-tab px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-medium transition cursor-pointer shrink-0 bg-white text-slate-600 border border-slate-200 hover:bg-slate-50">即將到期 / 已過期</button>
+          <button data-filter="paid" class="filter-tab px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-medium transition cursor-pointer shrink-0 bg-white text-slate-600 border border-slate-200 hover:bg-slate-50">已收齊</button>
+        </div>
+
+        <div class="relative w-full sm:w-64">
+          <svg class="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+          <input id="searchInput" type="text" placeholder="搜尋平台或成員姓名..." class="w-full pl-9 pr-3 py-2 text-sm bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 transition" />
+        </div>
+      </section>
+
+      <!-- 共享方案卡片列表 -->
+      <section id="plansGrid" class="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-5">
+        <!-- 由 JS 動態渲染 -->
+      </section>
+
+      <!-- 空狀態畫面 -->
+      <section id="emptyState" class="hidden bg-white rounded-2xl border border-dashed border-slate-300 p-10 text-center">
+        <div class="w-14 h-14 mx-auto rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center mb-4">
+          <svg class="w-7 h-7" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+          </svg>
+        </div>
+        <h3 class="text-base font-bold text-slate-900">目前沒有符合條件的共享方案</h3>
+        <p class="text-sm text-slate-500 mt-1 max-w-md mx-auto">點擊右上角「新增方案」建立您的共享分帳，或調整上方篩選條件。</p>
+        <button id="btnEmptyAdd" type="button" class="mt-5 inline-flex items-center gap-1.5 px-4 py-2.5 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-sm transition cursor-pointer">
+          立即新增方案
+        </button>
+      </section>
+
+    </main>
+
+    <!-- 頁尾 -->
+    <footer class="max-w-6xl w-full mx-auto px-4 sm:px-6 py-5 text-center text-xs text-slate-400">
+      資料已啟用雲端即時同步與本機快取雙重備援・空間代碼：<span id="footerWorkspaceCode" class="font-mono text-slate-500">---</span>
+    </footer>
+  </div>
+
+
+  <!-- ==================== MODAL 1：新增 / 編輯共享方案 ==================== -->
+  <div id="planModal" class="fixed inset-0 z-50 hidden items-center justify-center p-3 sm:p-4 bg-slate-900/50 backdrop-blur-xs modal-backdrop overflow-y-auto">
+    <div class="bg-white rounded-2xl shadow-xl w-full max-w-xl max-h-[92vh] flex flex-col overflow-hidden modal-panel my-auto">
+      <!-- Modal Header -->
+      <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+        <h2 id="planModalTitle" class="text-base sm:text-lg font-bold text-slate-900">新增共享方案</h2>
+        <button type="button" class="close-modal p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition cursor-pointer" data-target="planModal">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+        </button>
+      </div>
+
+      <!-- Modal Body -->
+      <form id="planForm" class="p-5 overflow-y-auto space-y-5">
+        <input type="hidden" id="editingPlanId" />
+
+        <!-- 1. 共享平台快捷選擇 -->
+        <div>
+          <label class="block text-sm font-semibold text-slate-800 mb-2">共享平台 <span class="text-rose-500">*</span></label>
+          <div id="platformPresets" class="flex flex-wrap gap-1.5 mb-2.5"></div>
+          <div class="flex items-center gap-2">
+            <input id="inputPlatformName" type="text" required placeholder="輸入平台或方案名稱（例如：YouTube Premium 家庭方案）" class="flex-1 px-3.5 py-2.5 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 transition" />
+            <input id="inputPlatformColor" type="color" value="#6366f1" title="選擇主題色" class="w-11 h-10 p-1 bg-white border border-slate-200 rounded-xl cursor-pointer shrink-0" />
+          </div>
+        </div>
+
+        <!-- 2. 總金額與期限 -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label for="inputTotalAmount" class="block text-sm font-semibold text-slate-800 mb-1.5">總金額 (NT$) <span class="text-rose-500">*</span></label>
+            <div class="relative">
+              <span class="absolute left-3.5 top-1/2 -translate-y-1/2 text-sm font-medium text-slate-400">NT$</span>
+              <input id="inputTotalAmount" type="number" min="0" step="any" required placeholder="479" class="w-full pl-12 pr-3.5 py-2.5 text-sm font-semibold bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 transition" />
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-sm font-semibold text-slate-800 mb-1.5">共享期限快捷設定</label>
+            <div class="grid grid-cols-4 gap-1.5">
+              <button type="button" data-months="1" class="duration-btn py-2 text-xs font-medium bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 text-slate-700 rounded-xl transition cursor-pointer">+1個月</button>
+              <button type="button" data-months="3" class="duration-btn py-2 text-xs font-medium bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 text-slate-700 rounded-xl transition cursor-pointer">+3個月</button>
+              <button type="button" data-months="6" class="duration-btn py-2 text-xs font-medium bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 text-slate-700 rounded-xl transition cursor-pointer">+6個月</button>
+              <button type="button" data-months="12" class="duration-btn py-2 text-xs font-medium bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 text-slate-700 rounded-xl transition cursor-pointer">+1年</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 開始與結束日期 -->
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label for="inputStartDate" class="block text-xs font-medium text-slate-600 mb-1">開始日期</label>
+            <input id="inputStartDate" type="date" required class="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 transition" />
+          </div>
+          <div>
+            <label for="inputEndDate" class="block text-xs font-medium text-slate-600 mb-1">結束日期（到期日）</label>
+            <input id="inputEndDate" type="date" required class="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 transition" />
+          </div>
+        </div>
+
+        <!-- 3. 共享成員管理（支援單獨微調金額） -->
+        <div class="space-y-2.5">
+          <div class="flex items-center justify-between flex-wrap gap-2">
+            <label class="text-sm font-semibold text-slate-800">共享成員名單與個別金額</label>
+            <label class="inline-flex items-center gap-2 text-xs sm:text-sm text-slate-700 cursor-pointer select-none bg-indigo-50/70 px-2.5 py-1 rounded-lg border border-indigo-100">
+              <input id="inputIncludeHost" type="checkbox" checked class="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer" />
+              <span class="font-medium text-indigo-900">包含我自己（主揪）</span>
+            </label>
+          </div>
+
+          <div class="flex gap-2">
+            <input id="inputMemberName" type="text" placeholder="輸入成員名稱，按 Enter 或逗號新增（可貼上多人）" class="flex-1 px-3.5 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 transition" />
+            <button id="btnAddMemberChip" type="button" class="px-3.5 py-2 text-sm font-medium bg-slate-800 hover:bg-slate-900 text-white rounded-xl transition cursor-pointer shrink-0">加入</button>
+          </div>
+
+          <!-- 已加入成員列表（可單獨微調金額） -->
+          <div id="memberChipsContainer" class="space-y-1.5 min-h-[44px] p-2.5 bg-slate-50 border border-slate-200/80 rounded-xl"></div>
+
+          <!-- 常用成員快捷加入 -->
+          <div id="frequentMembersSection" class="hidden">
+            <div class="flex items-center justify-between mb-1.5">
+              <span class="text-xs font-medium text-slate-500">常用成員（點擊快速加入）：</span>
+              <button id="btnClearFrequent" type="button" class="text-xs text-slate-400 hover:text-rose-500 transition cursor-pointer">清除紀錄</button>
+            </div>
+            <div id="frequentMembersContainer" class="flex flex-wrap gap-1.5"></div>
+          </div>
+        </div>
+
+        <!-- 4. 每人費用即時自動試算 -->
+        <div class="p-4 rounded-2xl bg-gradient-to-br from-indigo-50/80 to-slate-50 border border-indigo-100 space-y-3">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <span class="text-sm font-bold text-slate-800">預設每人費用試算</span>
+            <div class="inline-flex bg-white p-0.5 rounded-lg border border-slate-200 text-xs">
+              <button type="button" data-round="ceil" class="round-mode-btn px-2.5 py-1 rounded-md font-medium transition cursor-pointer bg-indigo-600 text-white">無條件進位</button>
+              <button type="button" data-round="round" class="round-mode-btn px-2.5 py-1 rounded-md font-medium transition cursor-pointer text-slate-600 hover:bg-slate-50">四捨五入</button>
+              <button type="button" data-round="exact" class="round-mode-btn px-2.5 py-1 rounded-md font-medium transition cursor-pointer text-slate-600 hover:bg-slate-50">精確小數</button>
+            </div>
+          </div>
+
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div class="text-xs text-slate-600 space-y-0.5">
+              <div>分攤總人數：<strong id="calcTotalPeople" class="text-slate-900">1</strong> 人 <span id="calcHostHint" class="text-indigo-600">（含主揪）</span></div>
+              <div>應收對象數：<strong id="calcBillablePeople" class="text-slate-900">0</strong> 人</div>
+            </div>
+
+            <div class="flex items-center gap-2">
+              <div class="relative w-36">
+                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-semibold text-indigo-600">NT$</span>
+                <input id="inputPerPerson" type="number" min="0" step="any" class="w-full pl-11 pr-3 py-2 text-base font-bold text-indigo-700 bg-white border border-indigo-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/30" />
+              </div>
+              <button id="btnResetPerPerson" type="button" class="hidden text-xs text-indigo-600 hover:underline cursor-pointer whitespace-nowrap">恢復試算</button>
+            </div>
+          </div>
+          <p id="manualOverrideHint" class="hidden text-xs text-amber-700 bg-amber-50 px-2.5 py-1 rounded-lg border border-amber-200/70">已手動微調預設每人金額；如需個別調整特定成員，可直接修改上方成員右側金額。</p>
+        </div>
+      </form>
+
+      <!-- Modal Footer -->
+      <div class="px-5 py-3.5 border-t border-slate-100 bg-slate-50/70 flex items-center justify-end gap-2.5">
+        <button type="button" class="close-modal px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-200/70 rounded-xl transition cursor-pointer" data-target="planModal">取消</button>
+        <button id="btnSubmitPlan" type="submit" form="planForm" class="px-5 py-2 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-sm transition cursor-pointer">儲存並同步</button>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ==================== MODAL 2：收款資訊全域設定 ==================== -->
+  <div id="paymentModal" class="fixed inset-0 z-50 hidden items-center justify-center p-3 sm:p-4 bg-slate-900/50 backdrop-blur-xs modal-backdrop overflow-y-auto">
+    <div class="bg-white rounded-2xl shadow-xl w-full max-w-md max-h-[90vh] flex flex-col overflow-hidden modal-panel my-auto">
+      <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+        <div>
+          <h2 class="text-base sm:text-lg font-bold text-slate-900">收款資訊全域設定</h2>
+          <p class="text-xs text-slate-500 mt-0.5">雲端同步儲存，產生通知訊息時自動帶入</p>
+        </div>
+        <button type="button" class="close-modal p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition cursor-pointer" data-target="paymentModal">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+        </button>
+      </div>
+
+      <form id="paymentForm" class="p-5 overflow-y-auto space-y-4">
+        <div>
+          <label for="payBank" class="block text-xs font-semibold text-slate-700 mb-1">銀行代碼與名稱</label>
+          <input id="payBank" type="text" placeholder="例如：822 中國信託 / 013 國泰世華" class="w-full px-3.5 py-2.5 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500" />
+        </div>
+        <div>
+          <label for="payAccount" class="block text-xs font-semibold text-slate-700 mb-1">銀行帳號</label>
+          <input id="payAccount" type="text" placeholder="例如：1234-5678-9012" class="w-full px-3.5 py-2.5 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500" />
+        </div>
+        <div>
+          <label for="payHolder" class="block text-xs font-semibold text-slate-700 mb-1">戶名</label>
+          <input id="payHolder" type="text" placeholder="例如：王小明" class="w-full px-3.5 py-2.5 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500" />
+        </div>
+        <div>
+          <label for="payLinePay" class="block text-xs font-semibold text-slate-700 mb-1">LINE Pay / 行動支付說明</label>
+          <input id="payLinePay" type="text" placeholder="例如：也可直接 LINE Pay / iPASS MONEY 轉帳" class="w-full px-3.5 py-2.5 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500" />
+        </div>
+        <div>
+          <label for="payNote" class="block text-xs font-semibold text-slate-700 mb-1">自訂備註</label>
+          <textarea id="payNote" rows="2" placeholder="例如：匯款完成後再麻煩私訊帳號後五碼，謝謝！" class="w-full px-3.5 py-2 text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 resize-none"></textarea>
+        </div>
+      </form>
+
+      <div class="px-5 py-3.5 border-t border-slate-100 bg-slate-50/70 flex items-center justify-end gap-2.5">
+        <button type="button" class="close-modal px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-200/70 rounded-xl transition cursor-pointer" data-target="paymentModal">取消</button>
+        <button type="submit" form="paymentForm" class="px-5 py-2 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-sm transition cursor-pointer">儲存設定</button>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ==================== MODAL 3：群組快速通知預覽 ==================== -->
+  <div id="notifyModal" class="fixed inset-0 z-50 hidden items-center justify-center p-3 sm:p-4 bg-slate-900/50 backdrop-blur-xs modal-backdrop overflow-y-auto">
+    <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[92vh] flex flex-col overflow-hidden modal-panel my-auto">
+      <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+        <div>
+          <h2 class="text-base sm:text-lg font-bold text-slate-900">快速通知群組</h2>
+          <p id="notifyPlanSubtitle" class="text-xs text-slate-500 mt-0.5"></p>
+        </div>
+        <button type="button" class="close-modal p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition cursor-pointer" data-target="notifyModal">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+        </button>
+      </div>
+
+      <div class="p-5 overflow-y-auto space-y-4">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <span class="block text-xs font-semibold text-slate-600 mb-1.5">名單顯示模式</span>
+            <div class="grid grid-cols-2 bg-slate-100 p-1 rounded-xl text-xs">
+              <button type="button" data-scope="all" class="notify-scope-btn py-1.5 rounded-lg font-medium transition cursor-pointer bg-white text-slate-900 shadow-xs">完整名單</button>
+              <button type="button" data-scope="unpaid" class="notify-scope-btn py-1.5 rounded-lg font-medium transition cursor-pointer text-slate-600">僅未繳費</button>
+            </div>
+          </div>
+          <div>
+            <span class="block text-xs font-semibold text-slate-600 mb-1.5">訊息語氣</span>
+            <div class="grid grid-cols-2 bg-slate-100 p-1 rounded-xl text-xs">
+              <button type="button" data-tone="friendly" class="notify-tone-btn py-1.5 rounded-lg font-medium transition cursor-pointer bg-white text-slate-900 shadow-xs">親切提醒</button>
+              <button type="button" data-tone="concise" class="notify-tone-btn py-1.5 rounded-lg font-medium transition cursor-pointer text-slate-600">簡潔帳單</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex items-center justify-between text-xs">
+          <label class="inline-flex items-center gap-2 text-slate-700 cursor-pointer select-none">
+            <input id="notifyIncludePayment" type="checkbox" checked class="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer" />
+            <span class="font-medium">自動帶入全域收款資訊</span>
+          </label>
+          <button id="btnQuickEditPayment" type="button" class="text-indigo-600 hover:underline font-medium cursor-pointer">編輯收款資訊</button>
+        </div>
+
+        <div>
+          <label for="notifyPreviewText" class="block text-xs font-semibold text-slate-600 mb-1.5">訊息預覽（可直接手動微調文字）</label>
+          <textarea id="notifyPreviewText" rows="10" class="w-full p-3.5 text-sm leading-relaxed bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-500 font-sans"></textarea>
+        </div>
+      </div>
+
+      <div class="px-5 py-3.5 border-t border-slate-100 bg-slate-50/70 flex flex-wrap items-center justify-end gap-2.5">
+        <button id="btnCopyGroupMsg" type="button" class="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-4 py-2.5 text-sm font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-100 rounded-xl transition cursor-pointer">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+          <span>一鍵複製訊息</span>
+        </button>
+        <button id="btnSendGroupLine" type="button" class="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-5 py-2.5 text-sm font-semibold text-white bg-[#06C755] hover:bg-[#05b34c] rounded-xl shadow-sm transition cursor-pointer">
+          <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M19.365 9.863c.349 0 .63.285.63.631 0 .345-.281.63-.63.63H17.61v1.125h1.755c.349 0 .63.283.63.63 0 .344-.281.629-.63.629h-2.386c-.345 0-.627-.285-.627-.629V8.108c0-.345.282-.63.63-.63h2.386c.346 0 .627.285.627.63 0 .349-.281.63-.63.63H17.61v1.125h1.755zm-3.855 3.016c0 .27-.174.51-.432.596-.064.021-.133.031-.199.031-.211 0-.391-.09-.51-.25l-2.443-3.317v2.94c0 .344-.279.629-.631.629-.346 0-.626-.285-.626-.629V8.108c0-.27.173-.51.43-.595.06-.023.136-.033.194-.033.195 0 .375.104.495.254l2.462 3.33V8.108c0-.345.282-.63.63-.63.345 0 .63.285.63.63v4.771zm-5.741 0c0 .344-.282.629-.631.629-.345 0-.627-.285-.627-.629V8.108c0-.345.282-.63.63-.63.346 0 .628.285.628.63v4.771zm-2.466.629H4.917c-.345 0-.63-.285-.63-.629V8.108c0-.345.285-.63.63-.63.348 0 .63.285.63.63v4.141h1.756c.348 0 .629.283.629.63 0 .344-.282.629-.629.629M24 10.314C24 4.943 18.615.572 12 .572S0 4.943 0 10.314c0 4.811 4.27 8.842 10.035 9.608.391.082.923.258 1.058.59.12.301.079.766.038 1.08l-.164 1.02c-.045.301-.24 1.186 1.049.645 1.291-.539 6.916-4.078 9.436-6.975C23.176 14.393 24 12.458 24 10.314"/></svg>
+          <span>透過 LINE 傳送</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ==================== MODAL 4：雲端同步與存取碼安全設定 ==================== -->
+  <div id="syncModal" class="fixed inset-0 z-50 hidden items-center justify-center p-3 sm:p-4 bg-slate-900/50 backdrop-blur-xs modal-backdrop overflow-y-auto">
+    <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[92vh] flex flex-col overflow-hidden modal-panel my-auto">
+      <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+        <div>
+          <h2 class="text-base sm:text-lg font-bold text-slate-900">雲端同步與安全設定</h2>
+          <p class="text-xs text-slate-500 mt-0.5">跨裝置即時同步資料與管理存取碼</p>
+        </div>
+        <button type="button" class="close-modal p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition cursor-pointer" data-target="syncModal">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+        </button>
+      </div>
+
+      <div class="p-5 overflow-y-auto space-y-5">
+        <!-- 當前雲端空間卡片 -->
+        <div class="p-4 rounded-2xl bg-gradient-to-br from-indigo-50 to-slate-50 border border-indigo-100 space-y-3">
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-xs font-semibold text-indigo-900">目前連線的雲端空間同步碼</span>
+            <span id="syncModalStatusText" class="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700">雲端已同步</span>
+          </div>
+
+          <div class="flex items-center justify-between gap-2 bg-white px-3.5 py-2.5 rounded-xl border border-indigo-100">
+            <span id="syncModalCode" class="text-base sm:text-lg font-mono font-bold text-indigo-700 tracking-wider select-all">SHARE-XXXX-XXXX</span>
+            <button id="btnCopySyncCode" type="button" class="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition cursor-pointer shrink-0">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+              <span>複製同步碼</span>
+            </button>
+          </div>
+
+          <div class="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+            <span>最後同步時間：<strong id="syncLastTime" class="text-slate-700">尚未同步</strong></span>
+            <button id="btnManualSync" type="button" class="inline-flex items-center gap-1 text-indigo-600 hover:text-indigo-800 font-semibold cursor-pointer">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+              <span>手動立即同步</span>
+            </button>
+          </div>
+          <p class="text-[11px] text-slate-500 leading-relaxed">
+            在手機或其他電腦開啟本系統後，選擇「連線既有空間」並輸入上方同步碼與您的存取碼，即可即時雙向同步所有帳務資料。
+          </p>
+        </div>
+
+        <!-- 修改存取碼 -->
+        <form id="formChangeAccessCode" class="p-4 rounded-2xl border border-slate-200 space-y-3">
+          <h3 class="text-sm font-bold text-slate-900">修改存取碼</h3>
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+            <input id="chgOldCode" type="password" required placeholder="目前存取碼" class="px-3 py-2 text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30" />
+            <input id="chgNewCode" type="password" minlength="4" maxlength="8" required placeholder="新存取碼 (4~8位)" class="px-3 py-2 text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30" />
+            <input id="chgConfirmCode" type="password" minlength="4" maxlength="8" required placeholder="確認新存取碼" class="px-3 py-2 text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30" />
+          </div>
+          <div class="flex items-center justify-between gap-2">
+            <span id="chgCodeMsg" class="text-xs font-medium text-rose-600"></span>
+            <button type="submit" class="px-4 py-2 text-xs font-semibold text-white bg-slate-800 hover:bg-slate-900 rounded-xl transition cursor-pointer shrink-0">更新存取碼</button>
+          </div>
+        </form>
+
+        <!-- 切換至其他雲端空間 -->
+        <form id="formSwitchSpace" class="p-4 rounded-2xl border border-slate-200 space-y-3">
+          <div class="flex items-center justify-between">
+            <h3 class="text-sm font-bold text-slate-900">切換至其他雲端空間</h3>
+            <button id="btnDisconnectSpace" type="button" class="text-xs font-medium text-rose-500 hover:underline cursor-pointer">登出目前空間</button>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            <input id="switchSpaceCode" type="text" required placeholder="目標同步碼 (SHARE-...)" class="px-3 py-2 text-xs sm:text-sm font-mono uppercase bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30" />
+            <input id="switchAccessCode" type="password" required placeholder="目標空間存取碼" class="px-3 py-2 text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/30" />
+          </div>
+          <div class="flex items-center justify-between gap-2">
+            <span id="switchSpaceMsg" class="text-xs font-medium text-rose-600"></span>
+            <button type="submit" class="px-4 py-2 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-xl transition cursor-pointer shrink-0">驗證並切換空間</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ==================== MODAL 5：資料管理（匯出 / 匯入 / 清除） ==================== -->
+  <div id="dataModal" class="fixed inset-0 z-50 hidden items-center justify-center p-3 sm:p-4 bg-slate-900/50 backdrop-blur-xs modal-backdrop overflow-y-auto">
+    <div class="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden modal-panel my-auto">
+      <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+        <h2 class="text-base sm:text-lg font-bold text-slate-900">資料備份與管理</h2>
+        <button type="button" class="close-modal p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition cursor-pointer" data-target="dataModal">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+        </button>
+      </div>
+
+      <div class="p-5 space-y-3">
+        <button id="btnExportJson" type="button" class="w-full flex items-center gap-3 p-3.5 rounded-xl border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50/40 transition text-left cursor-pointer">
+          <div class="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center shrink-0">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+          </div>
+          <div>
+            <div class="text-sm font-semibold text-slate-900">匯出 JSON 備份檔</div>
+            <div class="text-xs text-slate-500">下載所有方案、收款資訊與常用成員名單</div>
+          </div>
+        </button>
+
+        <label class="w-full flex items-center gap-3 p-3.5 rounded-xl border border-slate-200 hover:border-emerald-300 hover:bg-emerald-50/40 transition text-left cursor-pointer">
+          <div class="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+          </div>
+          <div>
+            <div class="text-sm font-semibold text-slate-900">匯入 JSON 備份檔</div>
+            <div class="text-xs text-slate-500">匯入先前的分帳紀錄並自動同步至雲端</div>
+          </div>
+          <input id="inputImportJson" type="file" accept=".json,application/json" class="hidden" />
+        </label>
+
+        <hr class="border-slate-100 my-2" />
+
+        <button id="btnClearSamples" type="button" class="w-full flex items-center gap-3 p-3.5 rounded-xl border border-slate-200 hover:border-amber-300 hover:bg-amber-50/40 transition text-left cursor-pointer">
+          <div class="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+          </div>
+          <div>
+            <div class="text-sm font-semibold text-slate-900">清除所有方案資料</div>
+            <div class="text-xs text-slate-500">移除現有方案（保留收款設定與存取碼）</div>
+          </div>
+        </button>
+
+        <button id="btnLoadSamples" type="button" class="w-full flex items-center gap-3 p-3.5 rounded-xl border border-slate-200 hover:border-slate-300 hover:bg-slate-50 transition text-left cursor-pointer">
+          <div class="w-10 h-10 rounded-xl bg-slate-100 text-slate-600 flex items-center justify-center shrink-0">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+          </div>
+          <div>
+            <div class="text-sm font-semibold text-slate-900">載入預設範例資料</div>
+            <div class="text-xs text-slate-500">加入 YouTube Premium 與 Netflix 範例方案</div>
+          </div>
+        </button>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ==================== MODAL 6：自訂確認視窗 ==================== -->
+  <div id="confirmModal" class="fixed inset-0 z-[110] hidden items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs modal-backdrop">
+    <div class="bg-white rounded-2xl shadow-xl w-full max-w-sm p-5 modal-panel">
+      <h3 id="confirmTitle" class="text-base font-bold text-slate-900">確認操作</h3>
+      <p id="confirmMessage" class="text-sm text-slate-600 mt-1.5 leading-relaxed"></p>
+      <div class="mt-5 flex items-center justify-end gap-2.5">
+        <button id="btnConfirmCancel" type="button" class="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-xl transition cursor-pointer">取消</button>
+        <button id="btnConfirmOk" type="button" class="px-4 py-2 text-sm font-semibold text-white bg-rose-600 hover:bg-rose-700 rounded-xl transition cursor-pointer">確定執行</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== Toast 通知容器 ==================== -->
+  <div id="toastContainer" class="fixed bottom-5 left-1/2 -translate-x-1/2 z-[120] flex flex-col items-center gap-2 pointer-events-none w-[92vw] max-w-sm"></div>
+
+
+  <!-- ==================== 核心應用程式邏輯（整合 Firebase 雲端即時同步） ==================== -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getAuth, signInAnonymously, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getFirestore, doc, getDoc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+    // ==================== 常數與環境設定 ====================
+    const LOCAL_KEYS = {
+      WORKSPACE_CODE: 'shareSplit_wsCode_v2',
+      ACCESS_HASH: 'shareSplit_accessHash_v2',
+      REMEMBER_UNLOCK: 'shareSplit_remember_v2',
+      CACHE_DATA: 'shareSplit_cache_v2',
+    };
+
+    const PLATFORM_PRESETS = [
+      { name: 'Netflix', color: '#E50914' },
+      { name: 'YouTube Premium', color: '#FF0000' },
+      { name: 'Spotify', color: '#1DB954' },
+      { name: 'Disney+', color: '#113CCF' },
+      { name: 'iCloud+', color: '#007AFF' },
+      { name: 'ChatGPT Plus', color: '#10A37F' },
+      { name: 'Microsoft 365', color: '#D83B01' },
+      { name: 'Apple One', color: '#1D1D1F' },
+      { name: 'Nintendo Switch Online', color: '#E60012' },
+      { name: '自訂', color: '#6366F1' },
+    ];
+
+    // Firebase 執行狀態
+    let app = null;
+    let auth = null;
+    let db = null;
+    let currentUser = null;
+    let firebaseReady = false;
+    let unsubscribeSnapshot = null;
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+    // 應用程式主要狀態
+    const state = {
+      workspaceCode: '',
+      accessCodeHash: '',
+      isUnlocked: false,
+      plans: [],
+      payment: {
+        bank: '',
+        account: '',
+        holder: '',
+        linePay: '',
+        note: '',
+      },
+      frequentMembers: [],
+      activeFilter: 'all',
+      searchQuery: '',
+      lastSyncedAt: null,
+      syncStatus: 'local', // 'synced' | 'syncing' | 'local'
+    };
+
+    // 表單暫存狀態
+    const formState = {
+      members: [], // [{ id, name, paid, customAmount: null | number }]
+      roundMode: 'ceil',
+      isManualPerPerson: false,
+      cycleMonths: 1,
+    };
+
+    // 群組通知暫存狀態
+    const notifyState = {
+      planId: null,
+      scope: 'all',
+      tone: 'friendly',
+    };
+
+    let confirmCallback = null;
+    let pendingNewCode = '';
+
+    // ==================== 本機安全快取輔助函式 ====================
+    function lsGet(key) {
+      try { return localStorage.getItem(key); } catch { return null; }
+    }
+    function lsSet(key, val) {
+      try { localStorage.setItem(key, val); } catch { /* ignore */ }
+    }
+    function lsRemove(key) {
+      try { localStorage.removeItem(key); } catch { /* ignore */ }
+    }
+
+    // ==================== 雜湊與代碼產生器 ====================
+    function generateWorkspaceCode() {
+      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+      const seg = () => Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+      return `SHARE-${seg()}-${seg()}`;
+    }
+
+    // 使用 SHA-256 雜湊存取碼（含空間代碼加鹽），並提供降級雜湊確保非 HTTPS 環境亦可運作
+    async function hashAccessCode(code, workspaceCode) {
+      const input = `${workspaceCode.trim().toUpperCase()}::${String(code).trim()}`;
+      try {
+        if (window.crypto && window.crypto.subtle) {
+          const data = new TextEncoder().encode(input);
+          const hashBuf = await crypto.subtle.digest('SHA-256', data);
+          return Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, '0')).join('');
+        }
+      } catch (e) {
+        console.warn('SubtleCrypto unavailable, using fallback hash');
+      }
+      // Fallback deterministic hash
+      let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+      for (let i = 0; i < input.length; i++) {
+        const ch = input.charCodeAt(i);
+        h1 = Math.imul(h1 ^ ch, 2654435761);
+        h2 = Math.imul(h2 ^ ch, 1597334677);
+      }
+      h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+      h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+      return 'fb_' + (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16);
+    }
+
+    function generateId() {
+      return 'id_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
+    }
+
+    // ==================== 日期與金額工具 ====================
+    function formatDateInput(dateObj) {
+      const y = dateObj.getFullYear();
+      const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+      const d = String(dateObj.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+
+    function parseLocalDate(str) {
+      if (!str) return new Date();
+      const [y, m, d] = str.split('-').map(Number);
+      return new Date(y, m - 1, d);
+    }
+
+    function addMonthsToDate(dateStr, months) {
+      const d = parseLocalDate(dateStr);
+      const origDay = d.getDate();
+      d.setMonth(d.getMonth() + months);
+      if (d.getDate() < origDay) d.setDate(0);
+      return formatDateInput(d);
+    }
+
+    function addDaysToDate(dateStr, days) {
+      const d = parseLocalDate(dateStr);
+      d.setDate(d.getDate() + days);
+      return formatDateInput(d);
+    }
+
+    function getDaysRemaining(endDateStr) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const end = parseLocalDate(endDateStr);
+      end.setHours(0, 0, 0, 0);
+      return Math.round((end - today) / (1000 * 60 * 60 * 24));
+    }
+
+    function formatDisplayDate(str) {
+      return str ? str.replace(/-/g, '/') : '';
+    }
+
+    function formatTimeShort(dateObj) {
+      if (!dateObj) return '尚未同步';
+      const hh = String(dateObj.getHours()).padStart(2, '0');
+      const mm = String(dateObj.getMinutes()).padStart(2, '0');
+      const ss = String(dateObj.getSeconds()).padStart(2, '0');
+      return `${hh}:${mm}:${ss}`;
+    }
+
+    function formatMoney(num) {
+      const n = Number(num) || 0;
+      if (Number.isInteger(n)) return n.toLocaleString('zh-TW');
+      return n.toLocaleString('zh-TW', { minimumFractionDigits: 1, maximumFractionDigits: 2 });
+    }
+
+    function getMemberAmount(plan, member) {
+      if (member.customAmount !== null && member.customAmount !== undefined && member.customAmount !== '' && !isNaN(Number(member.customAmount))) {
+        return Number(member.customAmount);
+      }
+      return Number(plan.perPerson) || 0;
+    }
+
+    function escapeHtml(str) {
+      return String(str || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    // ==================== Toast 與剪貼簿 ====================
+    function showToast(message, type = 'success') {
+      const container = document.getElementById('toastContainer');
+      const toast = document.createElement('div');
+      const colors = {
+        success: 'bg-slate-900 text-white',
+        error: 'bg-rose-600 text-white',
+        info: 'bg-indigo-600 text-white',
+      };
+      const icon = type === 'error'
+        ? '<svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>'
+        : '<svg class="w-4 h-4 text-emerald-400 shrink-0" fill="none" stroke="currentColor" stroke-width="2.4" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>';
+
+      toast.className = `toast-enter pointer-events-auto flex items-center gap-2 px-4 py-2.5 rounded-xl shadow-lg text-sm font-medium ${colors[type] || colors.success}`;
+      toast.innerHTML = `${icon}<span>${escapeHtml(message)}</span>`;
+      container.appendChild(toast);
+
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(8px)';
+        toast.style.transition = 'all 0.2s ease';
+        setTimeout(() => toast.remove(), 220);
+      }, 2600);
+    }
+
+    function copyToClipboard(text, successMsg = '已複製到剪貼簿！') {
+      try {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.setAttribute('readonly', '');
+        textarea.style.position = 'fixed';
+        textarea.style.top = '-9999px';
+        textarea.style.left = '-9999px';
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        textarea.setSelectionRange(0, textarea.value.length);
+        const ok = document.execCommand('copy');
+        document.body.removeChild(textarea);
+        if (ok) {
+          showToast(successMsg, 'success');
+        } else {
+          showToast('複製失敗，請手動選取文字複製', 'error');
+        }
+      } catch (err) {
+        showToast('複製失敗，請手動選取文字複製', 'error');
+      }
+    }
+
+    function openLineShare(text) {
+      const url = `https://line.me/R/msg/text/?${encodeURIComponent(text)}`;
+      window.open(url, '_blank', 'noopener,noreferrer');
+    }
+
+    // ==================== 範例資料 ====================
+    function createSampleData() {
+      const todayStr = formatDateInput(new Date());
+      return {
+        samplePlans: [
+          {
+            id: generateId(),
+            platformName: 'YouTube Premium 家庭方案',
+            color: '#FF0000',
+            totalAmount: 479,
+            startDate: addDaysToDate(todayStr, -25),
+            endDate: addDaysToDate(todayStr, 5),
+            cycleMonths: 1,
+            includeHost: true,
+            roundMode: 'ceil',
+            perPerson: 80,
+            isManualPerPerson: false,
+            members: [
+              { id: generateId(), name: '阿明', paid: true, customAmount: null },
+              { id: generateId(), name: '小美', paid: true, customAmount: null },
+              { id: generateId(), name: '志豪', paid: false, customAmount: null },
+              { id: generateId(), name: '怡君', paid: false, customAmount: null },
+              { id: generateId(), name: '凱文', paid: true, customAmount: null },
+            ],
+          },
+          {
+            id: generateId(),
+            platformName: 'Netflix 高級方案',
+            color: '#E50914',
+            totalAmount: 460,
+            startDate: addDaysToDate(todayStr, -10),
+            endDate: addDaysToDate(todayStr, 20),
+            cycleMonths: 1,
+            includeHost: true,
+            roundMode: 'ceil',
+            perPerson: 115,
+            isManualPerPerson: false,
+            members: [
+              { id: generateId(), name: '阿明', paid: true, customAmount: null },
+              { id: generateId(), name: '雅婷', paid: false, customAmount: null },
+              { id: generateId(), name: '建宏', paid: true, customAmount: null },
+            ],
+          },
+        ],
+        samplePayment: {
+          bank: '822 中國信託',
+          account: '1234-5678-9012',
+          holder: '王小明',
+          linePay: '也可直接 LINE Pay 轉帳',
+          note: '匯款後再麻煩告知帳號後五碼，感謝大家！',
+        },
+        sampleFrequent: ['阿明', '小美', '志豪', '怡君', '凱文', '雅婷', '建宏'],
+      };
+    }
+
+    // ==================== Firebase 初始化與雲端同步核心 ====================
+    function getWorkspaceDocRef(code) {
+      // 嚴格遵循路徑規則：/artifacts/{appId}/public/data/{collectionName}/{docId}
+      return doc(db, 'artifacts', appId, 'public', 'data', 'workspaces', code);
+    }
+
+    function updateSyncStatusUI(status, timeObj = null) {
+      state.syncStatus = status;
+      if (timeObj) state.lastSyncedAt = timeObj;
+
+      const dot = document.getElementById('syncDot');
+      const label = document.getElementById('syncLabel');
+      const modalStatus = document.getElementById('syncModalStatusText');
+      const lastTimeEl = document.getElementById('syncLastTime');
+
+      if (status === 'synced') {
+        const hhmm = state.lastSyncedAt
+          ? `${String(state.lastSyncedAt.getHours()).padStart(2, '0')}:${String(state.lastSyncedAt.getMinutes()).padStart(2, '0')}`
+          : '';
+        dot.className = 'w-2 h-2 rounded-full bg-emerald-500';
+        label.textContent = hhmm ? `雲端已同步 ${hhmm}` : '雲端已同步';
+        modalStatus.className = 'text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700';
+        modalStatus.textContent = '雲端即時同步中';
+      } else if (status === 'syncing') {
+        dot.className = 'w-2 h-2 rounded-full bg-blue-500 animate-pulse';
+        label.textContent = '同步中...';
+        modalStatus.className = 'text-xs font-semibold px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-700';
+        modalStatus.textContent = '正在同步資料...';
+      } else {
+        dot.className = 'w-2 h-2 rounded-full bg-amber-400';
+        label.textContent = '本機暫存';
+        modalStatus.className = 'text-xs font-semibold px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800';
+        modalStatus.textContent = '本機離線暫存';
+      }
+
+      lastTimeEl.textContent = formatTimeShort(state.lastSyncedAt);
+    }
+
+    async function initFirebase() {
+      try {
+        const rawConfig = typeof __firebase_config !== 'undefined' ? __firebase_config : null;
+        if (!rawConfig) {
+          firebaseReady = false;
+          updateSyncStatusUI('local');
+          return false;
+        }
+        const firebaseConfig = typeof rawConfig === 'string' ? JSON.parse(rawConfig) : rawConfig;
+        app = initializeApp(firebaseConfig);
+        auth = getAuth(app);
+        db = getFirestore(app);
+
+        // 嚴格遵循 Auth Before Queries 規則：先登入完成才執行任何 Firestore 讀寫
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+          const cred = await signInWithCustomToken(auth, __initial_auth_token);
+          currentUser = cred.user;
+        } else {
+          const cred = await signInAnonymously(auth);
+          currentUser = cred.user;
+        }
+
+        firebaseReady = Boolean(currentUser);
+        return firebaseReady;
+      } catch (err) {
+        console.error('Firebase init failed:', err);
+        firebaseReady = false;
+        updateSyncStatusUI('local');
+        return false;
+      }
+    }
+
+    function saveLocalCache() {
+      const cachePayload = {
+        workspaceCode: state.workspaceCode,
+        accessCodeHash: state.accessCodeHash,
+        plans: state.plans,
+        payment: state.payment,
+        frequentMembers: state.frequentMembers,
+        updatedAt: Date.now(),
+      };
+      lsSet(LOCAL_KEYS.WORKSPACE_CODE, state.workspaceCode);
+      lsSet(LOCAL_KEYS.ACCESS_HASH, state.accessCodeHash);
+      lsSet(LOCAL_KEYS.CACHE_DATA, JSON.stringify(cachePayload));
+    }
+
+    function loadLocalCache() {
+      try {
+        const raw = lsGet(LOCAL_KEYS.CACHE_DATA);
+        if (!raw) return null;
+        return JSON.parse(raw);
+      } catch {
+        return null;
+      }
+    }
+
+    async function persistStateToCloud() {
+      // 先寫入本機離線快取確保資料不遺失
+      saveLocalCache();
+
+      if (!firebaseReady || !currentUser || !state.workspaceCode) {
+        updateSyncStatusUI('local');
+        return;
+      }
+
+      updateSyncStatusUI('syncing');
+      try {
+        const ref = getWorkspaceDocRef(state.workspaceCode);
+        await setDoc(ref, {
+          workspaceCode: state.workspaceCode,
+          accessCodeHash: state.accessCodeHash,
+          plans: state.plans,
+          payment: state.payment,
+          frequentMembers: state.frequentMembers,
+          updatedAt: Date.now(),
+        });
+        updateSyncStatusUI('synced', new Date());
+      } catch (err) {
+        console.error('Cloud save error:', err);
+        updateSyncStatusUI('local');
+        showToast('雲端同步暫時受阻，已先儲存於本機快取', 'error');
+      }
+    }
+
+    function detachCloudListener() {
+      if (typeof unsubscribeSnapshot === 'function') {
+        unsubscribeSnapshot();
+        unsubscribeSnapshot = null;
+      }
+    }
+
+    function attachCloudListener(workspaceCode) {
+      detachCloudListener();
+      if (!firebaseReady || !currentUser || !workspaceCode) {
+        updateSyncStatusUI('local');
+        return;
+      }
+
+      updateSyncStatusUI('syncing');
+      const ref = getWorkspaceDocRef(workspaceCode);
+      unsubscribeSnapshot = onSnapshot(
+        ref,
+        (snap) => {
+          if (snap.exists()) {
+            const data = snap.data();
+            // 若遠端變更了存取碼，同步更新雜湊
+            if (data.accessCodeHash) {
+              state.accessCodeHash = data.accessCodeHash;
+            }
+            state.plans = Array.isArray(data.plans) ? data.plans : [];
+            state.payment = data.payment ? { ...state.payment, ...data.payment } : state.payment;
+            state.frequentMembers = Array.isArray(data.frequentMembers) ? data.frequentMembers : [];
+            saveLocalCache();
+            updateSyncStatusUI('synced', new Date());
+            if (state.isUnlocked) {
+              renderAll();
+            }
+          } else {
+            updateSyncStatusUI('synced', new Date());
+          }
+        },
+        (err) => {
+          console.error('onSnapshot error:', err);
+          updateSyncStatusUI('local');
+        }
+      );
+    }
+
+    // ==================== 安全門禁：啟動、解鎖與鎖定流程 ====================
+    function showGateView(viewName) {
+      document.getElementById('authGate').classList.remove('hidden');
+      document.getElementById('appShell').classList.add('hidden');
+      document.getElementById('gateLoadingView').classList.add('hidden');
+      document.getElementById('gateSetupView').classList.add('hidden');
+      document.getElementById('gateUnlockView').classList.add('hidden');
+
+      if (viewName === 'loading') {
+        document.getElementById('gateLoadingView').classList.remove('hidden');
+      } else if (viewName === 'setup') {
+        pendingNewCode = generateWorkspaceCode();
+        document.getElementById('newWorkspaceCodeDisplay').textContent = pendingNewCode;
+        document.getElementById('setupErrorMsg').classList.add('hidden');
+        document.getElementById('joinErrorMsg').classList.add('hidden');
+        document.getElementById('gateSetupView').classList.remove('hidden');
+      } else if (viewName === 'unlock') {
+        document.getElementById('unlockWorkspaceCode').textContent = state.workspaceCode;
+        document.getElementById('unlockInput').value = '';
+        document.getElementById('unlockErrorMsg').classList.add('hidden');
+        document.getElementById('gateUnlockView').classList.remove('hidden');
+        setTimeout(() => document.getElementById('unlockInput').focus(), 80);
+      }
+    }
+
+    function enterMainApp() {
+      state.isUnlocked = true;
+      document.getElementById('authGate').classList.add('hidden');
+      document.getElementById('appShell').classList.remove('hidden');
+      document.getElementById('footerWorkspaceCode').textContent = state.workspaceCode;
+      document.getElementById('syncModalCode').textContent = state.workspaceCode;
+      attachCloudListener(state.workspaceCode);
+      renderAll();
+    }
+
+    function lockAppNow() {
+      state.isUnlocked = false;
+      lsRemove(LOCAL_KEYS.REMEMBER_UNLOCK);
+      closeAllModals();
+      showGateView('unlock');
+      showToast('系統已鎖定，請輸入存取碼解鎖', 'info');
+    }
+
+    async function bootstrapApp() {
+      showGateView('loading');
+      await initFirebase();
+
+      const savedCode = lsGet(LOCAL_KEYS.WORKSPACE_CODE);
+      const savedHash = lsGet(LOCAL_KEYS.ACCESS_HASH);
+      const remembered = lsGet(LOCAL_KEYS.REMEMBER_UNLOCK) === 'true';
+      const cached = loadLocalCache();
+
+      if (savedCode && savedHash) {
+        state.workspaceCode = savedCode;
+        state.accessCodeHash = savedHash;
+        if (cached && cached.workspaceCode === savedCode) {
+          state.plans = Array.isArray(cached.plans) ? cached.plans : [];
+          state.payment = cached.payment ? { ...state.payment, ...cached.payment } : state.payment;
+          state.frequentMembers = Array.isArray(cached.frequentMembers) ? cached.frequentMembers : [];
+        }
+
+        // 若雲端可用，先同步最新存取碼雜湊以防在別台裝置修改過
+        if (firebaseReady && currentUser) {
+          try {
+            const snap = await getDoc(getWorkspaceDocRef(savedCode));
+            if (snap.exists()) {
+              const data = snap.data();
+              if (data.accessCodeHash && data.accessCodeHash !== savedHash) {
+                // 遠端已修改過存取碼 -> 強制要求重新輸入解鎖
+                state.accessCodeHash = data.accessCodeHash;
+                lsSet(LOCAL_KEYS.ACCESS_HASH, data.accessCodeHash);
+                lsRemove(LOCAL_KEYS.REMEMBER_UNLOCK);
+                showGateView('unlock');
+                return;
+              }
+              state.plans = Array.isArray(data.plans) ? data.plans : state.plans;
+              state.payment = data.payment ? { ...state.payment, ...data.payment } : state.payment;
+              state.frequentMembers = Array.isArray(data.frequentMembers) ? data.frequentMembers : state.frequentMembers;
+              saveLocalCache();
+            }
+          } catch (e) {
+            console.warn('Bootstrap cloud check failed, using local cache:', e);
+          }
+        }
+
+        if (remembered) {
+          enterMainApp();
+        } else {
+          showGateView('unlock');
+        }
+      } else {
+        showGateView('setup');
+      }
+    }
+
+    // ==================== 收款資訊與通知訊息產生器 ====================
+    function hasPaymentInfo() {
+      const p = state.payment;
+      return Boolean((p.bank && p.bank.trim()) || (p.account && p.account.trim()) || (p.linePay && p.linePay.trim()));
+    }
+
+    function buildPaymentInfoBlock() {
+      const p = state.payment;
+      const lines = [];
+      if (p.bank || p.account) lines.push(`🏦 銀行帳號：${[p.bank, p.account].filter(Boolean).join(' ')}`);
+      if (p.holder) lines.push(`👤 戶名：${p.holder}`);
+      if (p.linePay) lines.push(`💚 行動支付：${p.linePay}`);
+      if (p.note) lines.push(`📝 備註：${p.note}`);
+      return lines.join('\n');
+    }
+
+    function generateGroupMessage(plan, scope, tone, includePayment) {
+      const period = `${formatDisplayDate(plan.startDate)} ~ ${formatDisplayDate(plan.endDate)}`;
+      const unpaidMembers = plan.members.filter(m => !m.paid);
+      const targetMembers = scope === 'unpaid' ? unpaidMembers : plan.members;
+      const payBlock = includePayment ? buildPaymentInfoBlock() : '';
+      const hasCustomAmounts = plan.members.some(m => getMemberAmount(plan, m) !== Number(plan.perPerson));
+
+      const lines = [];
+      if (tone === 'friendly') {
+        if (scope === 'unpaid' && unpaidMembers.length === 0) {
+          return `🎉【${plan.platformName}】本期費用已全數收齊囉！感謝大家配合～`;
+        }
+        lines.push(`🔔 哈囉大家！提醒一下【${plan.platformName}】本期分帳資訊來囉～`);
+        lines.push('');
+        lines.push(`📅 共享期限：${period}`);
+        if (!hasCustomAmounts) {
+          lines.push(`💰 每人費用：NT$ ${formatMoney(plan.perPerson)}`);
+        }
+        lines.push('');
+        if (scope === 'unpaid') {
+          lines.push(`⏳ 尚未繳費名單（共 ${unpaidMembers.length} 位）：`);
+          unpaidMembers.forEach(m => {
+            lines.push(`・${m.name} — NT$ ${formatMoney(getMemberAmount(plan, m))}`);
+          });
+        } else {
+          lines.push(`👥 本期收款進度：`);
+          if (plan.includeHost) lines.push(`👑 主揪（本人）`);
+          targetMembers.forEach(m => {
+            const amtText = hasCustomAmounts ? ` NT$ ${formatMoney(getMemberAmount(plan, m))}` : '';
+            lines.push(`${m.paid ? '✅' : '⏳'} ${m.name}${amtText}（${m.paid ? '已繳費' : '待繳費'}）`);
+          });
+        }
+        if (payBlock) {
+          lines.push('');
+          lines.push('— 收款資訊 —');
+          lines.push(payBlock);
+        }
+        lines.push('');
+        lines.push('再麻煩還沒轉帳的朋友抽空處理，謝謝大家！🙏');
+      } else {
+        if (scope === 'unpaid' && unpaidMembers.length === 0) {
+          return `【${plan.platformName}】本期款項已全數收齊（${period}）。`;
+        }
+        lines.push(`【${plan.platformName} 分帳通知】`);
+        lines.push(`期限：${period}`);
+        if (!hasCustomAmounts) {
+          lines.push(`金額：NT$ ${formatMoney(plan.perPerson)} / 人`);
+        }
+        lines.push('');
+        if (scope === 'unpaid') {
+          if (hasCustomAmounts) {
+            lines.push('待繳名單：');
+            unpaidMembers.forEach(m => lines.push(`- ${m.name}：NT$ ${formatMoney(getMemberAmount(plan, m))}`));
+          } else {
+            lines.push(`待繳名單：${unpaidMembers.map(m => m.name).join('、')}`);
+          }
+        } else {
+          lines.push('成員狀態：');
+          if (plan.includeHost) lines.push(`- 主揪（本人）`);
+          targetMembers.forEach(m => {
+            const amtText = hasCustomAmounts ? ` (NT$ ${formatMoney(getMemberAmount(plan, m))})` : '';
+            lines.push(`${m.paid ? '✅' : '⏳'} ${m.name}${amtText}`);
+          });
+        }
+        if (payBlock) {
+          lines.push('');
+          lines.push(payBlock);
+        }
+      }
+      return lines.join('\n');
+    }
+
+    function generatePersonalMessage(plan, member) {
+      const period = `${formatDisplayDate(plan.startDate)} ~ ${formatDisplayDate(plan.endDate)}`;
+      const amount = getMemberAmount(plan, member);
+      const payBlock = buildPaymentInfoBlock();
+      const lines = [
+        `哈囉 ${member.name}！提醒一下【${plan.platformName}】的分帳費用唷～`,
+        `📅 期限：${period}`,
+        `💰 應繳金額：NT$ ${formatMoney(amount)}`,
+      ];
+      if (payBlock) {
+        lines.push('');
+        lines.push('— 收款資訊 —');
+        lines.push(payBlock);
+      }
+      lines.push('');
+      lines.push('再麻煩有空時轉帳給我，謝謝你！🙏');
+      return lines.join('\n');
+    }
+
+    // ==================== 畫面渲染：統計卡片與方案列表 ====================
+    function renderStats() {
+      let totalReceivable = 0;
+      let totalCollected = 0;
+      let totalPending = 0;
+      let pendingPeopleCount = 0;
+      let expiringCount = 0;
+
+      state.plans.forEach(plan => {
+        if (getDaysRemaining(plan.endDate) <= 7) expiringCount++;
+        plan.members.forEach(m => {
+          const amt = getMemberAmount(plan, m);
+          totalReceivable += amt;
+          if (m.paid) {
+            totalCollected += amt;
+          } else {
+            totalPending += amt;
+            pendingPeopleCount++;
+          }
+        });
+      });
+
+      const pct = totalReceivable > 0 ? Math.round((totalCollected / totalReceivable) * 100) : 0;
+
+      document.getElementById('statPlanCount').textContent = state.plans.length;
+      document.getElementById('statTotalReceivable').textContent = `NT$ ${formatMoney(totalReceivable)}`;
+      document.getElementById('statCollected').textContent = `NT$ ${formatMoney(totalCollected)}`;
+      document.getElementById('statCollectedPct').textContent = `${pct}%`;
+      document.getElementById('statProgressBar').style.width = `${pct}%`;
+      document.getElementById('statPending').textContent = `NT$ ${formatMoney(totalPending)}`;
+      document.getElementById('statPendingPeople').textContent = pendingPeopleCount > 0
+        ? `${pendingPeopleCount} 人次尚未繳費`
+        : '全部皆已收齊 🎉';
+
+      const expBadge = document.getElementById('statExpiringBadge');
+      if (expiringCount > 0) {
+        expBadge.textContent = `${expiringCount} 件即將到期`;
+        expBadge.classList.remove('hidden');
+      } else {
+        expBadge.classList.add('hidden');
+      }
+
+      const dot = document.getElementById('paymentStatusDot');
+      if (hasPaymentInfo()) dot.classList.remove('hidden');
+      else dot.classList.add('hidden');
+    }
+
+    function getFilteredPlans() {
+      const q = state.searchQuery.trim().toLowerCase();
+      return state.plans.filter(plan => {
+        const unpaidCount = plan.members.filter(m => !m.paid).length;
+        const daysLeft = getDaysRemaining(plan.endDate);
+
+        if (state.activeFilter === 'unpaid' && unpaidCount === 0) return false;
+        if (state.activeFilter === 'paid' && unpaidCount > 0) return false;
+        if (state.activeFilter === 'expiring' && daysLeft > 7) return false;
+
+        if (q) {
+          const matchPlatform = plan.platformName.toLowerCase().includes(q);
+          const matchMember = plan.members.some(m => m.name.toLowerCase().includes(q));
+          if (!matchPlatform && !matchMember) return false;
+        }
+        return true;
+      });
+    }
+
+    function renderPlans() {
+      const grid = document.getElementById('plansGrid');
+      const empty = document.getElementById('emptyState');
+      const filtered = getFilteredPlans();
+
+      if (filtered.length === 0) {
+        grid.innerHTML = '';
+        empty.classList.remove('hidden');
+        return;
+      }
+      empty.classList.add('hidden');
+
+      grid.innerHTML = filtered.map(plan => {
+        const daysLeft = getDaysRemaining(plan.endDate);
+        let expiryBadge = '';
+        if (daysLeft < 0) {
+          expiryBadge = `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-100 text-rose-700">已過期 ${Math.abs(daysLeft)} 天</span>`;
+        } else if (daysLeft === 0) {
+          expiryBadge = `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-100 text-rose-700">今天到期</span>`;
+        } else if (daysLeft <= 7) {
+          expiryBadge = `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800">剩餘 ${daysLeft} 天</span>`;
+        } else {
+          expiryBadge = `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600">剩餘 ${daysLeft} 天</span>`;
+        }
+
+        const totalPeople = plan.members.length + (plan.includeHost ? 1 : 0);
+        const paidCount = plan.members.filter(m => m.paid).length;
+        const billableCount = plan.members.length;
+        const unpaidCount = billableCount - paidCount;
+        const progressPct = billableCount > 0 ? Math.round((paidCount / billableCount) * 100) : 100;
+
+        const hostHtml = plan.includeHost ? `
+          <div class="flex items-center justify-between px-3 py-2 rounded-xl bg-indigo-50/60 border border-indigo-100/80">
+            <div class="flex items-center gap-2 min-w-0">
+              <span class="w-5 h-5 rounded-full bg-indigo-600 text-white text-[10px] font-bold flex items-center justify-center shrink-0">主</span>
+              <span class="text-sm font-medium text-indigo-950 truncate">我自己（主揪）</span>
+            </div>
+            <span class="text-xs font-semibold px-2 py-0.5 rounded-md bg-indigo-100 text-indigo-700 shrink-0">主揪</span>
+          </div>
+        ` : '';
+
+        const membersHtml = plan.members.map(m => {
+          const amt = getMemberAmount(plan, m);
+          const isCustom = amt !== Number(plan.perPerson);
+          const amtBadge = isCustom
+            ? `<span class="text-[11px] font-semibold text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded shrink-0">NT$ ${formatMoney(amt)}</span>`
+            : '';
+
+          if (m.paid) {
+            return `
+              <div class="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-emerald-50/60 border border-emerald-200/70 transition">
+                <button type="button" data-action="toggle-paid" data-plan-id="${plan.id}" data-member-id="${m.id}" class="flex-1 flex items-center gap-2 text-left min-w-0 cursor-pointer group" title="點擊切換為未繳費">
+                  <span class="w-5 h-5 rounded-full bg-emerald-500 text-white flex items-center justify-center shrink-0 group-hover:scale-105 transition">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+                  </span>
+                  <span class="text-sm font-medium text-slate-800 truncate">${escapeHtml(m.name)}</span>
+                  ${amtBadge}
+                </button>
+                <button type="button" data-action="toggle-paid" data-plan-id="${plan.id}" data-member-id="${m.id}" class="text-xs font-semibold text-emerald-700 bg-emerald-100/80 hover:bg-emerald-200/70 px-2 py-1 rounded-lg transition cursor-pointer shrink-0">已繳費</button>
+              </div>
+            `;
+          } else {
+            return `
+              <div class="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-white border border-slate-200 hover:border-amber-300 transition">
+                <button type="button" data-action="toggle-paid" data-plan-id="${plan.id}" data-member-id="${m.id}" class="flex-1 flex items-center gap-2 text-left min-w-0 cursor-pointer group" title="點擊標記為已繳費">
+                  <span class="w-5 h-5 rounded-full border-2 border-amber-400 bg-amber-50 flex items-center justify-center shrink-0 group-hover:bg-emerald-100 group-hover:border-emerald-500 transition"></span>
+                  <span class="text-sm font-medium text-slate-800 truncate">${escapeHtml(m.name)}</span>
+                  ${amtBadge}
+                  <span class="text-[11px] font-medium text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded shrink-0">待收</span>
+                </button>
+                <div class="flex items-center gap-1 shrink-0">
+                  <button type="button" data-action="personal-copy" data-plan-id="${plan.id}" data-member-id="${m.id}" class="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition cursor-pointer" title="複製個人催繳訊息">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+                    <span>複製</span>
+                  </button>
+                  <button type="button" data-action="personal-line" data-plan-id="${plan.id}" data-member-id="${m.id}" class="inline-flex items-center gap-1 px-2 py-1 text-xs font-semibold text-white bg-[#06C755] hover:bg-[#05b34c] rounded-lg transition cursor-pointer" title="開啟 LINE 傳送個人通知">
+                    <span>LINE</span>
+                  </button>
+                </div>
+              </div>
+            `;
+          }
+        }).join('');
+
+        return `
+          <article class="bg-white rounded-2xl border border-slate-200/90 shadow-sm hover:shadow-md transition flex flex-col overflow-hidden">
+            <div class="h-1.5 w-full" style="background-color: ${escapeHtml(plan.color || '#6366f1')}"></div>
+
+            <div class="p-4 sm:p-5 flex-1 flex flex-col">
+              <div class="flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <span class="w-2.5 h-2.5 rounded-full shrink-0" style="background-color: ${escapeHtml(plan.color || '#6366f1')}"></span>
+                    <h3 class="text-base sm:text-lg font-bold text-slate-900 truncate">${escapeHtml(plan.platformName)}</h3>
+                  </div>
+                  <p class="text-xs text-slate-500 mt-1 flex items-center gap-1.5">
+                    <svg class="w-3.5 h-3.5 text-slate-400 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                    <span>${formatDisplayDate(plan.startDate)} ~ ${formatDisplayDate(plan.endDate)}</span>
+                  </p>
+                </div>
+                <div class="shrink-0">${expiryBadge}</div>
+              </div>
+
+              <div class="mt-4 grid grid-cols-3 gap-2 p-3 rounded-xl bg-slate-50 border border-slate-100">
+                <div>
+                  <div class="text-[11px] text-slate-500">總金額</div>
+                  <div class="text-sm font-bold text-slate-900 mt-0.5">NT$ ${formatMoney(plan.totalAmount)}</div>
+                </div>
+                <div>
+                  <div class="text-[11px] text-slate-500">預設每人</div>
+                  <div class="text-sm font-bold text-indigo-600 mt-0.5">NT$ ${formatMoney(plan.perPerson)}</div>
+                </div>
+                <div>
+                  <div class="text-[11px] text-slate-500">收款進度</div>
+                  <div class="text-sm font-bold ${unpaidCount === 0 ? 'text-emerald-600' : 'text-slate-900'} mt-0.5">${paidCount}/${billableCount} 人</div>
+                </div>
+              </div>
+
+              <div class="w-full h-1.5 bg-slate-100 rounded-full mt-2.5 overflow-hidden">
+                <div class="h-full rounded-full transition-all duration-300 ${unpaidCount === 0 ? 'bg-emerald-500' : 'bg-indigo-500'}" style="width: ${progressPct}%"></div>
+              </div>
+
+              <div class="mt-4 flex-1">
+                <div class="flex items-center justify-between mb-2">
+                  <span class="text-xs font-semibold text-slate-500">共享成員（共 ${totalPeople} 人，點擊切換狀態）</span>
+                </div>
+                <div class="space-y-1.5">
+                  ${hostHtml}
+                  ${membersHtml || '<p class="text-xs text-slate-400 py-2 text-center">尚未新增其他共享成員</p>'}
+                </div>
+              </div>
+            </div>
+
+            <div class="px-4 sm:px-5 py-3 bg-slate-50/80 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
+              <button type="button" data-action="notify-group" data-plan-id="${plan.id}" class="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs sm:text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 active:scale-[0.98] rounded-xl shadow-xs transition cursor-pointer">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z"/></svg>
+                <span>通知群組</span>
+                ${unpaidCount > 0 ? `<span class="ml-0.5 px-1.5 py-0.2 bg-white/20 rounded-md text-[11px]">${unpaidCount}未繳</span>` : ''}
+              </button>
+
+              <div class="flex items-center gap-1.5">
+                <button type="button" data-action="renew-plan" data-plan-id="${plan.id}" class="inline-flex items-center gap-1 px-2.5 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-200 rounded-xl transition cursor-pointer" title="順延下一個週期並重置收款狀態">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                  <span>續期複製</span>
+                </button>
+                <button type="button" data-action="edit-plan" data-plan-id="${plan.id}" class="p-2 text-slate-500 hover:text-indigo-600 hover:bg-white border border-transparent hover:border-slate-200 rounded-xl transition cursor-pointer" title="編輯方案">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+                </button>
+                <button type="button" data-action="delete-plan" data-plan-id="${plan.id}" class="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition cursor-pointer" title="刪除方案">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                </button>
+              </div>
+            </div>
+          </article>
+        `;
+      }).join('');
+    }
+
+    function renderAll() {
+      renderStats();
+      renderPlans();
+    }
+
+    // ==================== Modal 控制 ====================
+    function openModal(id) {
+      const el = document.getElementById(id);
+      el.classList.remove('hidden');
+      el.classList.add('flex');
+      document.body.style.overflow = 'hidden';
+    }
+
+    function closeModal(id) {
+      const el = document.getElementById(id);
+      el.classList.add('hidden');
+      el.classList.remove('flex');
+      const anyOpen = document.querySelectorAll('.modal-backdrop.flex').length > 0;
+      if (!anyOpen) document.body.style.overflow = '';
+    }
+
+    function closeAllModals() {
+      document.querySelectorAll('.modal-backdrop').forEach(el => {
+        el.classList.add('hidden');
+        el.classList.remove('flex');
+      });
+      document.body.style.overflow = '';
+    }
+
+    function showConfirm(title, message, onConfirm) {
+      document.getElementById('confirmTitle').textContent = title;
+      document.getElementById('confirmMessage').textContent = message;
+      confirmCallback = onConfirm;
+      openModal('confirmModal');
+    }
+
+    // ==================== 新增 / 編輯方案表單（含個別成員微調） ====================
+    function renderPlatformPresets() {
+      const container = document.getElementById('platformPresets');
+      container.innerHTML = PLATFORM_PRESETS.map(p => `
+        <button type="button" data-preset-name="${escapeHtml(p.name)}" data-preset-color="${p.color}" class="platform-preset-btn inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium bg-slate-100 hover:bg-slate-200/80 text-slate-700 rounded-lg transition cursor-pointer">
+          <span class="w-2 h-2 rounded-full" style="background-color: ${p.color}"></span>
+          <span>${escapeHtml(p.name)}</span>
+        </button>
+      `).join('');
+    }
+
+    function renderFormMembers() {
+      const container = document.getElementById('memberChipsContainer');
+      const defaultPer = parseFloat(document.getElementById('inputPerPerson').value) || 0;
+
+      if (formState.members.length === 0) {
+        container.innerHTML = '<div class="text-xs text-slate-400 py-1.5 px-1">尚未加入共享成員，請在上方輸入名稱或點擊下方常用成員</div>';
+      } else {
+        container.innerHTML = formState.members.map(m => {
+          const isCustom = m.customAmount !== null && m.customAmount !== undefined && m.customAmount !== '';
+          const val = isCustom ? m.customAmount : '';
+          return `
+            <div class="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-xl bg-white border border-slate-200 shadow-2xs">
+              <div class="flex items-center gap-2 min-w-0">
+                <span class="text-xs sm:text-sm font-medium text-slate-800 truncate">${escapeHtml(m.name)}</span>
+                ${isCustom ? '<span class="text-[10px] font-semibold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded shrink-0">自訂</span>' : ''}
+              </div>
+              <div class="flex items-center gap-1.5 shrink-0">
+                <div class="relative w-24">
+                  <span class="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400">NT$</span>
+                  <input type="number" min="0" step="any" data-member-amount="${m.id}" value="${val}" placeholder="${defaultPer}" title="留空即套用預設每人費用，輸入數值可單獨微調" class="w-full pl-8 pr-2 py-1 text-xs font-semibold text-right bg-slate-50 border ${isCustom ? 'border-amber-300 text-amber-800 bg-amber-50/40' : 'border-slate-200 text-slate-700'} rounded-lg focus:bg-white focus:outline-none focus:ring-1 focus:ring-indigo-500" />
+                </div>
+                <button type="button" data-remove-member="${m.id}" class="p-1 text-slate-400 hover:text-rose-500 rounded-lg cursor-pointer" title="移除成員">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+              </div>
+            </div>
+          `;
+        }).join('');
+      }
+
+      // 常用成員
+      const existingNames = new Set(formState.members.map(m => m.name));
+      const availableFrequent = state.frequentMembers.filter(name => !existingNames.has(name));
+      const freqSection = document.getElementById('frequentMembersSection');
+      const freqContainer = document.getElementById('frequentMembersContainer');
+
+      if (availableFrequent.length > 0) {
+        freqSection.classList.remove('hidden');
+        freqContainer.innerHTML = availableFrequent.map(name => `
+          <button type="button" data-add-frequent="${escapeHtml(name)}" class="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium bg-indigo-50/70 hover:bg-indigo-100 text-indigo-700 rounded-lg border border-indigo-100 transition cursor-pointer">
+            <span>+ ${escapeHtml(name)}</span>
+          </button>
+        `).join('');
+      } else {
+        freqSection.classList.add('hidden');
+      }
+    }
+
+    function addMemberNames(rawStr) {
+      const names = rawStr.split(/[,，、\n]+/).map(s => s.trim()).filter(Boolean);
+      if (names.length === 0) return;
+
+      let added = 0;
+      const existing = new Set(formState.members.map(m => m.name));
+      names.forEach(name => {
+        if (!existing.has(name)) {
+          formState.members.push({ id: generateId(), name, paid: false, customAmount: null });
+          existing.add(name);
+          added++;
+        }
+      });
+
+      if (added > 0) {
+        recalculatePerPerson();
+        renderFormMembers();
+      }
+    }
+
+    function updateRoundModeUI() {
+      document.querySelectorAll('.round-mode-btn').forEach(btn => {
+        const active = btn.dataset.round === formState.roundMode;
+        btn.className = active
+          ? 'round-mode-btn px-2.5 py-1 rounded-md font-medium transition cursor-pointer bg-indigo-600 text-white'
+          : 'round-mode-btn px-2.5 py-1 rounded-md font-medium transition cursor-pointer text-slate-600 hover:bg-slate-50';
+      });
+    }
+
+    function recalculatePerPerson() {
+      const totalAmount = parseFloat(document.getElementById('inputTotalAmount').value) || 0;
+      const includeHost = document.getElementById('inputIncludeHost').checked;
+      const billablePeople = formState.members.length;
+      const totalPeople = billablePeople + (includeHost ? 1 : 0);
+
+      document.getElementById('calcTotalPeople').textContent = totalPeople;
+      document.getElementById('calcBillablePeople').textContent = billablePeople;
+      document.getElementById('calcHostHint').textContent = includeHost ? '（含主揪）' : '（不含主揪）';
+
+      const resetBtn = document.getElementById('btnResetPerPerson');
+      const hintEl = document.getElementById('manualOverrideHint');
+
+      if (formState.isManualPerPerson) {
+        resetBtn.classList.remove('hidden');
+        hintEl.classList.remove('hidden');
+      } else {
+        resetBtn.classList.add('hidden');
+        hintEl.classList.add('hidden');
+        let per = 0;
+        if (totalPeople > 0 && totalAmount > 0) {
+          const raw = totalAmount / totalPeople;
+          if (formState.roundMode === 'ceil') per = Math.ceil(raw);
+          else if (formState.roundMode === 'round') per = Math.round(raw);
+          else per = Math.round(raw * 100) / 100;
+        }
+        document.getElementById('inputPerPerson').value = per;
+      }
+
+      // 同步更新各成員輸入框的 placeholder 預設金額
+      const curDefault = document.getElementById('inputPerPerson').value || 0;
+      document.querySelectorAll('[data-member-amount]').forEach(inp => {
+        inp.placeholder = curDefault;
+      });
+    }
+
+    function openPlanForm(planId = null) {
+      document.getElementById('planForm').reset();
+      const todayStr = formatDateInput(new Date());
+
+      if (planId) {
+        const plan = state.plans.find(p => p.id === planId);
+        if (!plan) return;
+        document.getElementById('planModalTitle').textContent = '編輯共享方案';
+        document.getElementById('editingPlanId').value = plan.id;
+        document.getElementById('inputPlatformName').value = plan.platformName;
+        document.getElementById('inputPlatformColor').value = plan.color || '#6366f1';
+        document.getElementById('inputTotalAmount').value = plan.totalAmount;
+        document.getElementById('inputStartDate').value = plan.startDate;
+        document.getElementById('inputEndDate').value = plan.endDate;
+        document.getElementById('inputIncludeHost').checked = Boolean(plan.includeHost);
+
+        formState.members = plan.members.map(m => ({ ...m, customAmount: m.customAmount ?? null }));
+        formState.roundMode = plan.roundMode || 'ceil';
+        formState.isManualPerPerson = Boolean(plan.isManualPerPerson);
+        formState.cycleMonths = plan.cycleMonths || null;
+
+        updateRoundModeUI();
+        if (formState.isManualPerPerson) {
+          document.getElementById('inputPerPerson').value = plan.perPerson;
+        }
+        recalculatePerPerson();
+        renderFormMembers();
+      } else {
+        document.getElementById('planModalTitle').textContent = '新增共享方案';
+        document.getElementById('editingPlanId').value = '';
+        document.getElementById('inputPlatformColor').value = '#6366f1';
+        document.getElementById('inputStartDate').value = todayStr;
+        document.getElementById('inputEndDate').value = addMonthsToDate(todayStr, 1);
+        document.getElementById('inputIncludeHost').checked = true;
+
+        formState.members = [];
+        formState.roundMode = 'ceil';
+        formState.isManualPerPerson = false;
+        formState.cycleMonths = 1;
+
+        updateRoundModeUI();
+        recalculatePerPerson();
+        renderFormMembers();
+      }
+
+      openModal('planModal');
+    }
+
+    function renewPlan(planId) {
+      const orig = state.plans.find(p => p.id === planId);
+      if (!orig) return;
+
+      const newStart = orig.endDate;
+      let newEnd;
+      if (orig.cycleMonths) {
+        newEnd = addMonthsToDate(newStart, orig.cycleMonths);
+      } else {
+        const diffDays = Math.max(1, Math.round((parseLocalDate(orig.endDate) - parseLocalDate(orig.startDate)) / (1000 * 60 * 60 * 24)));
+        newEnd = addDaysToDate(newStart, diffDays);
+      }
+
+      const cloned = {
+        ...orig,
+        id: generateId(),
+        startDate: newStart,
+        endDate: newEnd,
+        members: orig.members.map(m => ({
+          id: generateId(),
+          name: m.name,
+          paid: false,
+          customAmount: m.customAmount ?? null,
+        })),
+      };
+
+      state.plans.unshift(cloned);
+      persistStateToCloud();
+      renderAll();
+      showToast(`已建立續期方案（${formatDisplayDate(newStart)} ~ ${formatDisplayDate(newEnd)}）`);
+    }
+
+    // ==================== 通知與收款 Modal ====================
+    function updateNotifyPreview() {
+      const plan = state.plans.find(p => p.id === notifyState.planId);
+      if (!plan) return;
+      const includePayment = document.getElementById('notifyIncludePayment').checked;
+      document.getElementById('notifyPreviewText').value = generateGroupMessage(plan, notifyState.scope, notifyState.tone, includePayment);
+
+      document.querySelectorAll('.notify-scope-btn').forEach(btn => {
+        const active = btn.dataset.scope === notifyState.scope;
+        btn.className = active
+          ? 'notify-scope-btn py-1.5 rounded-lg font-medium transition cursor-pointer bg-white text-slate-900 shadow-xs'
+          : 'notify-scope-btn py-1.5 rounded-lg font-medium transition cursor-pointer text-slate-600';
+      });
+      document.querySelectorAll('.notify-tone-btn').forEach(btn => {
+        const active = btn.dataset.tone === notifyState.tone;
+        btn.className = active
+          ? 'notify-tone-btn py-1.5 rounded-lg font-medium transition cursor-pointer bg-white text-slate-900 shadow-xs'
+          : 'notify-tone-btn py-1.5 rounded-lg font-medium transition cursor-pointer text-slate-600';
+      });
+    }
+
+    function openNotifyModal(planId) {
+      const plan = state.plans.find(p => p.id === planId);
+      if (!plan) return;
+      notifyState.planId = planId;
+      notifyState.scope = 'all';
+      notifyState.tone = 'friendly';
+
+      document.getElementById('notifyPlanSubtitle').textContent = `${plan.platformName}（${formatDisplayDate(plan.startDate)} ~ ${formatDisplayDate(plan.endDate)}）`;
+      document.getElementById('notifyIncludePayment').checked = hasPaymentInfo();
+      updateNotifyPreview();
+      openModal('notifyModal');
+    }
+
+    function openPaymentModal() {
+      document.getElementById('payBank').value = state.payment.bank || '';
+      document.getElementById('payAccount').value = state.payment.account || '';
+      document.getElementById('payHolder').value = state.payment.holder || '';
+      document.getElementById('payLinePay').value = state.payment.linePay || '';
+      document.getElementById('payNote').value = state.payment.note || '';
+      openModal('paymentModal');
+    }
+
+    function openSyncModal() {
+      document.getElementById('syncModalCode').textContent = state.workspaceCode;
+      document.getElementById('chgCodeMsg').textContent = '';
+      document.getElementById('switchSpaceMsg').textContent = '';
+      document.getElementById('formChangeAccessCode').reset();
+      document.getElementById('formSwitchSpace').reset();
+      updateSyncStatusUI(state.syncStatus);
+      openModal('syncModal');
+    }
+
+    // ==================== 所有事件綁定 ====================
+    function bindEvents() {
+      // ---------- 安全門禁事件 ----------
+      const tabCreate = document.getElementById('tabCreateSpace');
+      const tabJoin = document.getElementById('tabJoinSpace');
+      const formCreate = document.getElementById('formCreateSpace');
+      const formJoin = document.getElementById('formJoinSpace');
+
+      tabCreate.addEventListener('click', () => {
+        tabCreate.className = 'py-2.5 rounded-xl transition cursor-pointer bg-white text-indigo-700 shadow-xs';
+        tabJoin.className = 'py-2.5 rounded-xl transition cursor-pointer text-slate-500 hover:text-slate-700';
+        formCreate.classList.remove('hidden');
+        formJoin.classList.add('hidden');
+      });
+
+      tabJoin.addEventListener('click', () => {
+        tabJoin.className = 'py-2.5 rounded-xl transition cursor-pointer bg-white text-indigo-700 shadow-xs';
+        tabCreate.className = 'py-2.5 rounded-xl transition cursor-pointer text-slate-500 hover:text-slate-700';
+        formJoin.classList.remove('hidden');
+        formCreate.classList.add('hidden');
+      });
+
+      document.getElementById('btnRegenCode').addEventListener('click', () => {
+        pendingNewCode = generateWorkspaceCode();
+        document.getElementById('newWorkspaceCodeDisplay').textContent = pendingNewCode;
+      });
+
+      // 建立新雲端空間
+      formCreate.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const code1 = document.getElementById('setupAccessCode').value.trim();
+        const code2 = document.getElementById('setupAccessCodeConfirm').value.trim();
+        const errEl = document.getElementById('setupErrorMsg');
+        errEl.classList.add('hidden');
+
+        if (code1.length < 4 || code1.length > 8) {
+          errEl.textContent = '存取碼長度須為 4 至 8 位（數字或英數）。';
+          errEl.classList.remove('hidden');
+          return;
+        }
+        if (code1 !== code2) {
+          errEl.textContent = '兩次輸入的存取碼不一致，請重新確認。';
+          errEl.classList.remove('hidden');
+          return;
+        }
+
+        const btn = document.getElementById('btnCreateSpaceSubmit');
+        btn.disabled = true;
+        btn.textContent = '正在建立雲端空間...';
+
+        try {
+          const wsCode = pendingNewCode || generateWorkspaceCode();
+          const hashed = await hashAccessCode(code1, wsCode);
+          const loadSamples = document.getElementById('setupLoadSamples').checked;
+          const remember = document.getElementById('setupRememberDevice').checked;
+
+          state.workspaceCode = wsCode;
+          state.accessCodeHash = hashed;
+          if (loadSamples) {
+            const { samplePlans, samplePayment, sampleFrequent } = createSampleData();
+            state.plans = samplePlans;
+            state.payment = samplePayment;
+            state.frequentMembers = sampleFrequent;
+          } else {
+            state.plans = [];
+            state.payment = { bank: '', account: '', holder: '', linePay: '', note: '' };
+            state.frequentMembers = [];
+          }
+
+          if (remember) lsSet(LOCAL_KEYS.REMEMBER_UNLOCK, 'true');
+          else lsRemove(LOCAL_KEYS.REMEMBER_UNLOCK);
+
+          await persistStateToCloud();
+          enterMainApp();
+          showToast(`雲端空間 ${wsCode} 建立完成！`);
+        } catch (err) {
+          console.error(err);
+          errEl.textContent = '建立空間時發生錯誤，請稍後再試。';
+          errEl.classList.remove('hidden');
+        } finally {
+          btn.disabled = false;
+          btn.textContent = '建立空間並進入系統';
+        }
+      });
+
+      // 連線既有空間
+      formJoin.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const wsCode = document.getElementById('joinSpaceCode').value.trim().toUpperCase();
+        const accessCode = document.getElementById('joinAccessCode').value.trim();
+        const remember = document.getElementById('joinRememberDevice').checked;
+        const errEl = document.getElementById('joinErrorMsg');
+        errEl.classList.add('hidden');
+
+        if (!firebaseReady || !currentUser) {
+          errEl.textContent = '目前無法連線至雲端資料庫，請確認網路連線後再試。';
+          errEl.classList.remove('hidden');
+          return;
+        }
+
+        const btn = document.getElementById('btnJoinSpaceSubmit');
+        btn.disabled = true;
+        btn.textContent = '正在驗證雲端資料...';
+
+        try {
+          const snap = await getDoc(getWorkspaceDocRef(wsCode));
+          if (!snap.exists()) {
+            errEl.textContent = `找不到雲端空間「${wsCode}」，請檢查同步碼是否正確。`;
+            errEl.classList.remove('hidden');
+            return;
+          }
+          const data = snap.data();
+          const inputHash = await hashAccessCode(accessCode, wsCode);
+          if (data.accessCodeHash !== inputHash) {
+            errEl.textContent = '存取碼不正確，請重新輸入。';
+            errEl.classList.remove('hidden');
+            return;
+          }
+
+          state.workspaceCode = wsCode;
+          state.accessCodeHash = data.accessCodeHash;
+          state.plans = Array.isArray(data.plans) ? data.plans : [];
+          state.payment = data.payment ? { ...state.payment, ...data.payment } : state.payment;
+          state.frequentMembers = Array.isArray(data.frequentMembers) ? data.frequentMembers : [];
+
+          saveLocalCache();
+          if (remember) lsSet(LOCAL_KEYS.REMEMBER_UNLOCK, 'true');
+          else lsRemove(LOCAL_KEYS.REMEMBER_UNLOCK);
+
+          enterMainApp();
+          showToast(`已成功連線並同步空間 ${wsCode}！`);
+        } catch (err) {
+          console.error(err);
+          errEl.textContent = '驗證過程發生錯誤，請檢查網路後重試。';
+          errEl.classList.remove('hidden');
+        } finally {
+          btn.disabled = false;
+          btn.textContent = '驗證並同步資料';
+        }
+      });
+
+      // 解鎖畫面：數字鍵盤
+      document.getElementById('unlockKeypad').addEventListener('click', (e) => {
+        const btn = e.target.closest('.keypad-btn');
+        if (!btn) return;
+        const key = btn.dataset.key;
+        const inp = document.getElementById('unlockInput');
+        if (key === 'clear') {
+          inp.value = '';
+        } else if (key === 'back') {
+          inp.value = inp.value.slice(0, -1);
+        } else if (inp.value.length < 8) {
+          inp.value += key;
+        }
+        inp.focus();
+      });
+
+      // 解鎖驗證
+      document.getElementById('formUnlock').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const inp = document.getElementById('unlockInput');
+        const code = inp.value.trim();
+        const remember = document.getElementById('unlockRememberDevice').checked;
+        const errEl = document.getElementById('unlockErrorMsg');
+        errEl.classList.add('hidden');
+
+        if (!code) {
+          errEl.textContent = '請輸入存取碼。';
+          errEl.classList.remove('hidden');
+          return;
+        }
+
+        const hashed = await hashAccessCode(code, state.workspaceCode);
+        if (hashed !== state.accessCodeHash) {
+          errEl.textContent = '存取碼錯誤，請重新輸入。';
+          errEl.classList.remove('hidden');
+          inp.value = '';
+          inp.classList.remove('shake');
+          void inp.offsetWidth;
+          inp.classList.add('shake');
+          return;
+        }
+
+        if (remember) lsSet(LOCAL_KEYS.REMEMBER_UNLOCK, 'true');
+        else lsRemove(LOCAL_KEYS.REMEMBER_UNLOCK);
+
+        enterMainApp();
+        showToast('解鎖成功，歡迎回來！');
+      });
+
+      // 從解鎖畫面切換空間
+      document.getElementById('btnSwitchWorkspaceFromGate').addEventListener('click', () => {
+        showConfirm(
+          '切換或建立其他雲端空間',
+          '這將會解除此裝置與目前空間的綁定（雲端資料仍會安全保留），讓您連線其他空間或建立新空間，確定繼續？',
+          () => {
+            detachCloudListener();
+            lsRemove(LOCAL_KEYS.WORKSPACE_CODE);
+            lsRemove(LOCAL_KEYS.ACCESS_HASH);
+            lsRemove(LOCAL_KEYS.REMEMBER_UNLOCK);
+            lsRemove(LOCAL_KEYS.CACHE_DATA);
+            state.workspaceCode = '';
+            state.accessCodeHash = '';
+            showGateView('setup');
+          }
+        );
+      });
+
+      // ---------- 導覽列按鈕 ----------
+      document.getElementById('btnAddPlan').addEventListener('click', () => openPlanForm(null));
+      document.getElementById('btnEmptyAdd').addEventListener('click', () => openPlanForm(null));
+      document.getElementById('btnOpenPayment').addEventListener('click', openPaymentModal);
+      document.getElementById('btnOpenData').addEventListener('click', () => openModal('dataModal'));
+      document.getElementById('btnOpenSync').addEventListener('click', openSyncModal);
+      document.getElementById('btnSyncBadge').addEventListener('click', openSyncModal);
+      document.getElementById('btnLockNow').addEventListener('click', lockAppNow);
+
+      // 通用 Modal 關閉
+      document.querySelectorAll('.close-modal').forEach(btn => {
+        btn.addEventListener('click', () => closeModal(btn.dataset.target));
+      });
+      document.querySelectorAll('.modal-backdrop').forEach(backdrop => {
+        backdrop.addEventListener('click', (e) => {
+          if (e.target === backdrop) closeModal(backdrop.id);
+        });
+      });
+
+      // ---------- 雲端同步與安全設定 Modal ----------
+      document.getElementById('btnCopySyncCode').addEventListener('click', () => {
+        copyToClipboard(state.workspaceCode, `已複製同步碼：${state.workspaceCode}`);
+      });
+
+      document.getElementById('btnManualSync').addEventListener('click', async () => {
+        if (!firebaseReady || !currentUser) {
+          showToast('目前為本機離線狀態，無法連線雲端', 'error');
+          return;
+        }
+        await persistStateToCloud();
+        showToast('已完成雲端雙向同步！');
+      });
+
+      // 修改存取碼
+      document.getElementById('formChangeAccessCode').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const oldCode = document.getElementById('chgOldCode').value.trim();
+        const newCode = document.getElementById('chgNewCode').value.trim();
+        const confirmCode = document.getElementById('chgConfirmCode').value.trim();
+        const msgEl = document.getElementById('chgCodeMsg');
+        msgEl.textContent = '';
+
+        const oldHash = await hashAccessCode(oldCode, state.workspaceCode);
+        if (oldHash !== state.accessCodeHash) {
+          msgEl.textContent = '目前的存取碼不正確。';
+          return;
+        }
+        if (newCode.length < 4 || newCode.length > 8) {
+          msgEl.textContent = '新存取碼長度須為 4~8 位。';
+          return;
+        }
+        if (newCode !== confirmCode) {
+          msgEl.textContent = '兩次輸入的新存取碼不一致。';
+          return;
+        }
+
+        state.accessCodeHash = await hashAccessCode(newCode, state.workspaceCode);
+        await persistStateToCloud();
+        document.getElementById('formChangeAccessCode').reset();
+        showToast('存取碼已更新並同步至雲端！');
+      });
+
+      // 切換至其他空間
+      document.getElementById('formSwitchSpace').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const targetCode = document.getElementById('switchSpaceCode').value.trim().toUpperCase();
+        const targetAccess = document.getElementById('switchAccessCode').value.trim();
+        const msgEl = document.getElementById('switchSpaceMsg');
+        msgEl.textContent = '';
+
+        if (!firebaseReady || !currentUser) {
+          msgEl.textContent = '目前離線，無法驗證其他雲端空間。';
+          return;
+        }
+
+        try {
+          const snap = await getDoc(getWorkspaceDocRef(targetCode));
+          if (!snap.exists()) {
+            msgEl.textContent = `找不到空間「${targetCode}」。`;
+            return;
+          }
+          const data = snap.data();
+          const hash = await hashAccessCode(targetAccess, targetCode);
+          if (data.accessCodeHash !== hash) {
+            msgEl.textContent = '該空間的存取碼錯誤。';
+            return;
+          }
+
+          state.workspaceCode = targetCode;
+          state.accessCodeHash = data.accessCodeHash;
+          state.plans = Array.isArray(data.plans) ? data.plans : [];
+          state.payment = data.payment ? { ...state.payment, ...data.payment } : state.payment;
+          state.frequentMembers = Array.isArray(data.frequentMembers) ? data.frequentMembers : [];
+          saveLocalCache();
+
+          document.getElementById('footerWorkspaceCode').textContent = targetCode;
+          document.getElementById('syncModalCode').textContent = targetCode;
+          attachCloudListener(targetCode);
+          renderAll();
+          closeModal('syncModal');
+          showToast(`已成功切換至雲端空間 ${targetCode}！`);
+        } catch (err) {
+          msgEl.textContent = '切換空間失敗，請檢查網路連線。';
+        }
+      });
+
+      document.getElementById('btnDisconnectSpace').addEventListener('click', () => {
+        showConfirm(
+          '登出目前雲端空間',
+          '確定要解除此裝置與目前空間的連線嗎？您的資料仍會安全保留在雲端，之後隨時可用同步碼重新登入。',
+          () => {
+            detachCloudListener();
+            lsRemove(LOCAL_KEYS.WORKSPACE_CODE);
+            lsRemove(LOCAL_KEYS.ACCESS_HASH);
+            lsRemove(LOCAL_KEYS.REMEMBER_UNLOCK);
+            lsRemove(LOCAL_KEYS.CACHE_DATA);
+            state.workspaceCode = '';
+            state.accessCodeHash = '';
+            state.isUnlocked = false;
+            closeAllModals();
+            showGateView('setup');
+          }
+        );
+      });
+
+      // ---------- 篩選與搜尋 ----------
+      document.getElementById('filterTabs').addEventListener('click', (e) => {
+        const btn = e.target.closest('.filter-tab');
+        if (!btn) return;
+        state.activeFilter = btn.dataset.filter;
+        document.querySelectorAll('.filter-tab').forEach(t => {
+          const isActive = t === btn;
+          t.className = isActive
+            ? 'filter-tab px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-medium transition cursor-pointer shrink-0 bg-slate-900 text-white'
+            : 'filter-tab px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-medium transition cursor-pointer shrink-0 bg-white text-slate-600 border border-slate-200 hover:bg-slate-50';
+        });
+        renderPlans();
+      });
+
+      document.getElementById('searchInput').addEventListener('input', (e) => {
+        state.searchQuery = e.target.value;
+        renderPlans();
+      });
+
+      // ---------- 新增 / 編輯方案表單互動 ----------
+      document.getElementById('platformPresets').addEventListener('click', (e) => {
+        const btn = e.target.closest('.platform-preset-btn');
+        if (!btn) return;
+        const name = btn.dataset.presetName;
+        const color = btn.dataset.presetColor;
+        const nameInput = document.getElementById('inputPlatformName');
+        document.getElementById('inputPlatformColor').value = color;
+        if (name === '自訂') {
+          nameInput.value = '';
+          nameInput.focus();
+        } else {
+          nameInput.value = name;
+        }
+      });
+
+      document.querySelectorAll('.duration-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const months = parseInt(btn.dataset.months, 10);
+          const startInput = document.getElementById('inputStartDate');
+          if (!startInput.value) startInput.value = formatDateInput(new Date());
+          document.getElementById('inputEndDate').value = addMonthsToDate(startInput.value, months);
+          formState.cycleMonths = months;
+        });
+      });
+
+      document.getElementById('inputStartDate').addEventListener('change', () => {
+        if (formState.cycleMonths) {
+          document.getElementById('inputEndDate').value = addMonthsToDate(document.getElementById('inputStartDate').value, formState.cycleMonths);
+        }
+      });
+      document.getElementById('inputEndDate').addEventListener('change', () => {
+        formState.cycleMonths = null;
+      });
+
+      const memberInput = document.getElementById('inputMemberName');
+      memberInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ',' || e.key === '，') {
+          e.preventDefault();
+          addMemberNames(memberInput.value);
+          memberInput.value = '';
+        }
+      });
+      document.getElementById('btnAddMemberChip').addEventListener('click', () => {
+        addMemberNames(memberInput.value);
+        memberInput.value = '';
+        memberInput.focus();
+      });
+
+      // 成員列表事件：移除成員 / 單獨微調金額
+      const memberContainer = document.getElementById('memberChipsContainer');
+      memberContainer.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-remove-member]');
+        if (!btn) return;
+        const id = btn.dataset.removeMember;
+        formState.members = formState.members.filter(m => m.id !== id);
+        recalculatePerPerson();
+        renderFormMembers();
+      });
+      memberContainer.addEventListener('input', (e) => {
+        const inp = e.target.closest('[data-member-amount]');
+        if (!inp) return;
+        const id = inp.dataset.memberAmount;
+        const member = formState.members.find(m => m.id === id);
+        if (!member) return;
+        const raw = inp.value.trim();
+        member.customAmount = raw === '' ? null : parseFloat(raw);
+      });
+
+      document.getElementById('frequentMembersContainer').addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-add-frequent]');
+        if (!btn) return;
+        addMemberNames(btn.dataset.addFrequent);
+      });
+
+      document.getElementById('btnClearFrequent').addEventListener('click', () => {
+        state.frequentMembers = [];
+        persistStateToCloud();
+        renderFormMembers();
+        showToast('已清除常用成員紀錄', 'info');
+      });
+
+      document.getElementById('inputTotalAmount').addEventListener('input', recalculatePerPerson);
+      document.getElementById('inputIncludeHost').addEventListener('change', recalculatePerPerson);
+
+      document.querySelectorAll('.round-mode-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          formState.roundMode = btn.dataset.round;
+          formState.isManualPerPerson = false;
+          updateRoundModeUI();
+          recalculatePerPerson();
+        });
+      });
+
+      document.getElementById('inputPerPerson').addEventListener('input', () => {
+        formState.isManualPerPerson = true;
+        recalculatePerPerson();
+      });
+
+      document.getElementById('btnResetPerPerson').addEventListener('click', () => {
+        formState.isManualPerPerson = false;
+        recalculatePerPerson();
+      });
+
+      // 儲存共享方案
+      document.getElementById('planForm').addEventListener('submit', (e) => {
+        e.preventDefault();
+        if (memberInput.value.trim()) {
+          addMemberNames(memberInput.value);
+          memberInput.value = '';
+        }
+
+        const platformName = document.getElementById('inputPlatformName').value.trim();
+        const color = document.getElementById('inputPlatformColor').value;
+        const totalAmount = parseFloat(document.getElementById('inputTotalAmount').value);
+        const startDate = document.getElementById('inputStartDate').value;
+        const endDate = document.getElementById('inputEndDate').value;
+        const includeHost = document.getElementById('inputIncludeHost').checked;
+        const perPerson = parseFloat(document.getElementById('inputPerPerson').value) || 0;
+
+        if (!platformName || isNaN(totalAmount)) {
+          showToast('請完整填寫平台名稱與總金額', 'error');
+          return;
+        }
+
+        const freqSet = new Set(state.frequentMembers);
+        formState.members.forEach(m => freqSet.add(m.name));
+        state.frequentMembers = Array.from(freqSet).slice(0, 30);
+
+        const editingId = document.getElementById('editingPlanId').value;
+        if (editingId) {
+          const idx = state.plans.findIndex(p => p.id === editingId);
+          if (idx !== -1) {
+            state.plans[idx] = {
+              ...state.plans[idx],
+              platformName, color, totalAmount, startDate, endDate,
+              cycleMonths: formState.cycleMonths,
+              includeHost,
+              roundMode: formState.roundMode,
+              perPerson,
+              isManualPerPerson: formState.isManualPerPerson,
+              members: formState.members,
+            };
+          }
+          showToast(`已更新「${platformName}」並同步雲端`);
+        } else {
+          state.plans.unshift({
+            id: generateId(),
+            platformName, color, totalAmount, startDate, endDate,
+            cycleMonths: formState.cycleMonths,
+            includeHost,
+            roundMode: formState.roundMode,
+            perPerson,
+            isManualPerPerson: formState.isManualPerPerson,
+            members: formState.members,
+          });
+          showToast(`已新增「${platformName}」並同步雲端`);
+        }
+
+        persistStateToCloud();
+        renderAll();
+        closeModal('planModal');
+      });
+
+      // ---------- 方案卡片事件委派 ----------
+      document.getElementById('plansGrid').addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-action]');
+        if (!btn) return;
+        const action = btn.dataset.action;
+        const planId = btn.dataset.planId;
+        const memberId = btn.dataset.memberId;
+        const plan = state.plans.find(p => p.id === planId);
+        if (!plan) return;
+
+        if (action === 'toggle-paid') {
+          const member = plan.members.find(m => m.id === memberId);
+          if (!member) return;
+          member.paid = !member.paid;
+          persistStateToCloud();
+          renderAll();
+          showToast(member.paid ? `已標記 ${member.name} 為「已繳費」` : `已將 ${member.name} 改回「待繳費」`, 'info');
+        } else if (action === 'personal-copy') {
+          const member = plan.members.find(m => m.id === memberId);
+          if (!member) return;
+          copyToClipboard(generatePersonalMessage(plan, member), `已複製給「${member.name}」的專屬通知！`);
+        } else if (action === 'personal-line') {
+          const member = plan.members.find(m => m.id === memberId);
+          if (!member) return;
+          openLineShare(generatePersonalMessage(plan, member));
+        } else if (action === 'notify-group') {
+          openNotifyModal(planId);
+        } else if (action === 'renew-plan') {
+          renewPlan(planId);
+        } else if (action === 'edit-plan') {
+          openPlanForm(planId);
+        } else if (action === 'delete-plan') {
+          showConfirm(
+            '刪除共享方案',
+            `確定要刪除「${plan.platformName}」嗎？刪除後將同步移除且無法復原。`,
+            () => {
+              state.plans = state.plans.filter(p => p.id !== planId);
+              persistStateToCloud();
+              renderAll();
+              showToast(`已刪除「${plan.platformName}」`, 'info');
+            }
+          );
+        }
+      });
+
+      // ---------- 收款資訊儲存 ----------
+      document.getElementById('paymentForm').addEventListener('submit', (e) => {
+        e.preventDefault();
+        state.payment = {
+          bank: document.getElementById('payBank').value.trim(),
+          account: document.getElementById('payAccount').value.trim(),
+          holder: document.getElementById('payHolder').value.trim(),
+          linePay: document.getElementById('payLinePay').value.trim(),
+          note: document.getElementById('payNote').value.trim(),
+        };
+        persistStateToCloud();
+        renderStats();
+        closeModal('paymentModal');
+        showToast('已儲存全域收款資訊並同步雲端！');
+        if (!document.getElementById('notifyModal').classList.contains('hidden')) {
+          updateNotifyPreview();
+        }
+      });
+
+      // ---------- 群組通知 Modal ----------
+      document.querySelectorAll('.notify-scope-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          notifyState.scope = btn.dataset.scope;
+          updateNotifyPreview();
+        });
+      });
+      document.querySelectorAll('.notify-tone-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          notifyState.tone = btn.dataset.tone;
+          updateNotifyPreview();
+        });
+      });
+      document.getElementById('notifyIncludePayment').addEventListener('change', updateNotifyPreview);
+      document.getElementById('btnQuickEditPayment').addEventListener('click', openPaymentModal);
+      document.getElementById('btnCopyGroupMsg').addEventListener('click', () => {
+        copyToClipboard(document.getElementById('notifyPreviewText').value, '已複製群組通知訊息！');
+      });
+      document.getElementById('btnSendGroupLine').addEventListener('click', () => {
+        openLineShare(document.getElementById('notifyPreviewText').value);
+      });
+
+      // ---------- 資料備份與管理 ----------
+      document.getElementById('btnExportJson').addEventListener('click', () => {
+        const payload = {
+          version: 2,
+          exportedAt: new Date().toISOString(),
+          plans: state.plans,
+          payment: state.payment,
+          frequentMembers: state.frequentMembers,
+        };
+        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `共享分帳備份_${formatDateInput(new Date())}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        showToast('已下載 JSON 備份檔！');
+      });
+
+      document.getElementById('inputImportJson').addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          try {
+            const data = JSON.parse(ev.target.result);
+            if (!Array.isArray(data.plans)) throw new Error('格式不符');
+            state.plans = data.plans;
+            if (data.payment) state.payment = { ...state.payment, ...data.payment };
+            if (Array.isArray(data.frequentMembers)) state.frequentMembers = data.frequentMembers;
+            persistStateToCloud();
+            renderAll();
+            closeModal('dataModal');
+            showToast(`成功匯入 ${state.plans.length} 筆方案並同步至雲端！`);
+          } catch {
+            showToast('匯入失敗，請確認檔案為正確的 JSON 備份檔', 'error');
+          }
+        };
+        reader.readAsText(file);
+        e.target.value = '';
+      });
+
+      document.getElementById('btnClearSamples').addEventListener('click', () => {
+        showConfirm(
+          '清除所有方案資料',
+          '確定要清除目前所有的共享方案嗎？（收款資訊與存取碼將保留，變更會同步至雲端）',
+          () => {
+            state.plans = [];
+            persistStateToCloud();
+            renderAll();
+            closeModal('dataModal');
+            showToast('已清除所有方案資料', 'info');
+          }
+        );
+      });
+
+      document.getElementById('btnLoadSamples').addEventListener('click', () => {
+        showConfirm(
+          '載入預設範例資料',
+          '這將會加入 2 筆範例方案（YouTube Premium 與 Netflix）並同步至雲端，是否繼續？',
+          () => {
+            const { samplePlans, sampleFrequent } = createSampleData();
+            state.plans = [...samplePlans, ...state.plans];
+            state.frequentMembers = Array.from(new Set([...state.frequentMembers, ...sampleFrequent]));
+            persistStateToCloud();
+            renderAll();
+            closeModal('dataModal');
+            showToast('已載入範例資料並同步雲端！');
+          }
+        );
+      });
+
+      // ---------- 自訂確認視窗 ----------
+      document.getElementById('btnConfirmCancel').addEventListener('click', () => {
+        confirmCallback = null;
+        closeModal('confirmModal');
+      });
+      document.getElementById('btnConfirmOk').addEventListener('click', () => {
+        const cb = confirmCallback;
+        confirmCallback = null;
+        closeModal('confirmModal');
+        if (typeof cb === 'function') cb();
+      });
+    }
+
+    // ==================== 啟動系統 ====================
+    renderPlatformPresets();
+    bindEvents();
+    bootstrapApp();
+  </script>
+</body>
+</html>
